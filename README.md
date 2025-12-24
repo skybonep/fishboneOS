@@ -1,21 +1,14 @@
-# fishboneOS
+# fishboneOS: A Highly Modular OS Toolkit
 
-**fishboneOS** is a simple system made of small, separate parts. You can pick the pieces you like and put them together to build your own custom system. Every piece can be changed or replaced easily. It is built for user choice and simple connections. We are starting with a small base to grow a project that is easy to use.
+fishboneOS is a developer-centric system built from discrete, interchangeable components. It is designed to provide complete control and flexible ways to connect different system pieces together, acknowledging that while building an OS is an "insane journey," the architecture should not get in your way.
 
-## Project Goals
-The core vision of fishboneOS is to provide an ultra-modular operating system "playground" for developers. Unlike traditional systems with fixed cores, this project treats every component—including the kernel—as a replaceable module.
+## Why use fishboneOS?
+- Build Your Own System: Select specific components to assemble a custom environment tailored to your project’s requirements.
 
-- Extreme Modularity: Inspired by projects like LegoOS and CharlotteOS, the system splits traditional OS functionalities into loosely-coupled monitors or modules. Users can select their preferred modules at installation-time to create a custom build. Furthermore, the system aims to allow the replacement of modules at run-time, providing a dynamic environment for testing new drivers or managers.
+- Fully Replaceable Architecture: Every component of the system is interchangeable. In fishboneOS, even the kernel is treated as a module that can be swapped or updated, similar to a "loosely-coupled monitor".
 
-- User-Driven Customization: Users should be able to select specific modules—such as different filesystems, schedulers, or drivers—to assemble an OS tailored to their specific hardware or task requirements.
+- Reliability and Clear Design: Development prioritizes a stable and understandable codebase over raw performance, ensuring the architecture remains manageable as the system grows.
 
-- A "No Must-Have" Philosophy: In this architecture, there are no "hard" dependencies. Even the kernel is treated as a module, allowing a developer to swap out a monolithic kernel for a microkernel or a specialized research manager depending on their needs.
+- A Developer’s Sandbox: An "on-the-metal" testing ground for researchers and developers to experiment with new algorithms, drivers, and unique system architectures.
 
-- Developer-First Design: The initial target audience is developers and researchers. Because these users possess the technical knowledge to understand specific module functions, they can better navigate the choices required to assemble a functional system.
-
-- Stability through Modular Isolation: To ensure that a "bad" or experimental module does not "nuke" the entire system, fishboneOS will implement graceful failure mechanisms
-. This isolation ensures that if one module fails, the rest of the system remains retrievable and stable.
-
-- Simplicity over Performance: The codebase will prioritize clean, readable C and Assembly. The goal is a system that is easy to audit and modify, ensuring it can be used and understood by other people in the OSDev community.
-
-
+- Focused Fundamentals: By starting with a minimal, robust base, the project ensures that the core logic remains accessible for deep research and technical contribution.
