@@ -1,5 +1,6 @@
 # Created by https://www.toptal.com/developers/gitignore/api/c,assembler
-# Edit at https://www.toptal.com/developers/gitignore?templates=c,assembler
+
+build/
 
 ### Assembler ###
 *.exe
@@ -57,5 +58,3 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
-
-# End of https://www.toptal.com/developers/gitignore/api/c,assembler
