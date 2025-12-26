@@ -8,7 +8,7 @@ CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra
 LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
 OBJS := boot.o kernel.o
-BIN := myos.bin
+BIN := barebones.bin
 ISO := barebones.iso
 PROJECT_ROOT := ../../..
 ISO_OUT := $(PROJECT_ROOT)/build/iso/boot
@@ -17,11 +17,9 @@ ISO_OUT := $(PROJECT_ROOT)/build/iso/boot
 
 all: $(ISO_OUT)/$(ISO)
 
-$(ISO_OUT)/$(ISO): $(ISO) | $(ISO_OUT)
-	cp $< $@
-
-$(ISO): $(BIN)
+$(ISO_OUT)/$(ISO): $(BIN) | $(ISO_OUT)
 	$(GRUB) -o $@ .
+	@echo "ISO created: $@"
 
 $(BIN): $(OBJS) linker.ld
 	$(CC) -T linker.ld -o $@ $(OBJS) $(LDFLAGS)
