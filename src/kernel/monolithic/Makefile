@@ -1,4 +1,4 @@
-# Simple Makefile to build barebones.iso from boot.s and kernel.c
+# Simple Makefile to build monolithic.iso from boot.s and kernel.c
 
 CROSS_BIN := $(HOME)/opt/cross/bin
 CC := $(CROSS_BIN)/i686-elf-gcc
@@ -9,9 +9,9 @@ CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra
 LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
 OBJS := boot.o kernel.o
-BIN := barebones.bin
+BIN := monolithic.bin
 LINKER := linker.ld
-ISO := barebones.iso
+ISO := monolithic.iso
 PROJECT_ROOT := ../../..
 ISO_OUT := $(PROJECT_ROOT)/build/iso/boot
 
