@@ -1,6 +1,7 @@
 # Simple Makefile to build monolithic.iso from boot.s and kernel.c
 
 CROSS_BIN := $(HOME)/opt/cross/bin
+KERNEL_DIR := kernel/kernel
 ARCH_DIR := kernel/arch/i386
 CC := $(CROSS_BIN)/i686-elf-gcc
 AS := $(CROSS_BIN)/i686-elf-as
@@ -9,7 +10,7 @@ GRUB := grub-mkrescue
 CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra
 LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
-OBJS := $(ARCH_DIR)/boot.o kernel.o
+OBJS := $(ARCH_DIR)/boot.o $(KERNEL_DIR)/kernel.o
 BIN := monolithic.bin
 LINKER := linker.ld
 ISO := monolithic.iso
@@ -29,6 +30,9 @@ $(BIN): $(OBJS) $(LINKER)
 
 $(ARCH_DIR)/%.o: $(ARCH_DIR)/%.s
 	$(AS) $< -o $@
+
+$(KERNEL_DIR)/%.o: $(KERNEL_DIR)/%.c
+	$(CC) -c $(CFLAGS) $< -o $@
 
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
