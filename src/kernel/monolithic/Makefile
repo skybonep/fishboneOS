@@ -3,14 +3,21 @@
 CROSS_BIN := $(HOME)/opt/cross/bin
 KERNEL_DIR := kernel/kernel
 ARCH_DIR := kernel/arch/i386
+INC_DIR := kernel/include
+
 CC := $(CROSS_BIN)/i686-elf-gcc
 AS := $(CROSS_BIN)/i686-elf-as
 GRUB := grub-mkrescue
 
-CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra
+CPPFLAGS := -I$(INC_DIR)
+CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra $(CPPFLAGS)
 LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
-OBJS := $(ARCH_DIR)/boot.o $(KERNEL_DIR)/kernel.o
+# auto-discover kernel C sources and assembly sources
+SOURCES := $(shell find kernel -type f \( -name '*.c' -o -name '*.s' \))
+OBJS := $(patsubst %.c,%.o,$(SOURCES))
+OBJS := $(patsubst %.s,%.o,$(OBJS))
+
 BIN := monolithic.bin
 LINKER := linker.ld
 ISO := monolithic.iso
@@ -30,6 +37,9 @@ $(BIN): $(OBJS) $(LINKER)
 
 $(ARCH_DIR)/%.o: $(ARCH_DIR)/%.s
 	$(AS) $< -o $@
+
+$(ARCH_DIR)/%.o: $(ARCH_DIR)/%.c
+	$(CC) -c $(CFLAGS) $< -o $@
 
 $(KERNEL_DIR)/%.o: $(KERNEL_DIR)/%.c
 	$(CC) -c $(CFLAGS) $< -o $@
