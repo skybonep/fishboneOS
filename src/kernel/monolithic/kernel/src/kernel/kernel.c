@@ -5,6 +5,9 @@
 #include <stdio.h>
 
 #include <kernel/tty.h>
+#include <drivers/serial.h>
+
+#define SERIAL_COM1_BASE 0x3F8
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
@@ -25,4 +28,11 @@ void kernel_main(void)
 	terminal_writestring("Hello, kernel World!\n");
 
 	printf("Printf says hello too!\n");
+
+    /* Initialize the serial driver first */
+    serial_configure(SERIAL_COM1_BASE);
+
+    /* Send a debug message to the emulator */
+    serial_write(SERIAL_COM1_BASE, "DEBUG: fishboneOS has successfully initialized serial logging.\n");
+
 }
