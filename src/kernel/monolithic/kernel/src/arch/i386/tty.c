@@ -1,7 +1,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-// #include <string.h>
+#include <string.h>
 
 #include <kernel/tty.h>
 
@@ -53,6 +53,6 @@ void terminal_write(const char* data, size_t size) {
 		terminal_putchar(data[i]);
 }
 
-// void terminal_writestring(const char* data) {
-// 	terminal_write(data, strlen(data));
-// }
+void terminal_writestring(const char* data) {
+	terminal_write(data, strlen(data));
+}

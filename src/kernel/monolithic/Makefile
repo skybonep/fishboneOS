@@ -1,20 +1,24 @@
 # Simple Makefile to build monolithic.iso from boot.s and kernel.c
 
 CROSS_BIN := $(HOME)/opt/cross/bin
-KERNEL_DIR := kernel/kernel
-ARCH_DIR := kernel/arch/i386
-INC_DIR := kernel/include
+KERNEL_DIR := kernel/src/kernel/kernel
+ARCH_DIR := kernel/src/kernel/arch/i386
+LIBC_DIR := libc
+
+KERNEL_INC_DIR := kernel/include
+LIBC_INC_DIR := libc/include
 
 CC := $(CROSS_BIN)/i686-elf-gcc
 AS := $(CROSS_BIN)/i686-elf-as
 GRUB := grub-mkrescue
 
-CPPFLAGS := -I$(INC_DIR)
+CPPFLAGS := -I$(KERNEL_INC_DIR) -I$(LIBC_INC_DIR) -D__is_libk
 CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra $(CPPFLAGS)
 LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
 # auto-discover kernel C sources and assembly sources
-SOURCES := $(shell find kernel -type f \( -name '*.c' -o -name '*.s' \))
+SOURCES := $(shell find kernel libc -type f \( -name '*.c' -o -name '*.s' \) 2>/dev/null)
+
 OBJS := $(patsubst %.c,%.o,$(SOURCES))
 OBJS := $(patsubst %.s,%.o,$(OBJS))
 
