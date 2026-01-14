@@ -6,8 +6,7 @@
 
 #include <kernel/tty.h>
 #include <drivers/serial.h>
-
-#define SERIAL_COM1_BASE 0x3F8
+#include <kernel/log.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
@@ -19,7 +18,7 @@
 #warning "This tutorial needs to be compiled with a ix86-elf compiler"
 #endif
 
-void kernel_main(void) 
+void kernel_main(void)
 {
 	/* Initialize terminal interface */
 	terminal_initialize();
@@ -29,10 +28,13 @@ void kernel_main(void)
 
 	printf("Printf says hello too!\n");
 
-    /* Initialize the serial driver first */
-    serial_configure(SERIAL_COM1_BASE);
+	/* Initialize the serial driver first */
+	serial_init(SERIAL_COM1_BASE);
 
-    /* Send a debug message to the emulator */
-    serial_write(SERIAL_COM1_BASE, "DEBUG: fishboneOS has successfully initialized serial logging.\n");
-
+	/* Log messages at various severity levels */
+	kprint(LOG_DEBUG, "This is a debug message.");
+	kprint(LOG_INFO, "System initialized successfully.");
+	kprint(LOG_WARNING, "Low memory warning.");
+	kprint(LOG_ERROR, "An error has occurred!");
+	kprint(LOG_FATAL, "Fatal error! System halt.");
 }
