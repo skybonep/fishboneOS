@@ -1,5 +1,3 @@
-# Simple Makefile to build monolithic.iso from boot.s and kernel.c
-
 CROSS_BIN := $(HOME)/opt/cross/bin
 KERNEL_DIR := kernel/src/kernel/kernel
 ARCH_DIR := kernel/src/kernel/arch/i386
