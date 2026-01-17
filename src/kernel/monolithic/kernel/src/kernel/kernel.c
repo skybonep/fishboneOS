@@ -7,6 +7,7 @@
 #include <kernel/tty.h>
 #include <drivers/serial.h>
 #include <kernel/log.h>
+#include <kernel/info.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
@@ -37,4 +38,6 @@ void kernel_main(void)
 	kprint(LOG_WARNING, "Low memory warning.");
 	kprint(LOG_ERROR, "An error has occurred!");
 	kprint(LOG_FATAL, "Fatal error! System halt.");
+
+	log_system_info();
 }

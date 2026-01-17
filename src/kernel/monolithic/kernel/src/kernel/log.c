@@ -3,11 +3,11 @@
 #include <stdarg.h>
 
 static const char *level_tags[] = {
-    "[DEBUG]   ",
-    "[INFO]    ",
+    "[DEBUG] ",
+    "[INFO] ",
     "[WARNING] ",
-    "[ERROR]   ",
-    "[FATAL]   "
+    "[ERROR] ",
+    "[FATAL] "
 };
 
 /*
