@@ -32,7 +32,7 @@ void kprint(int level, const char *format, ...) {
     }
 
     // Handle formatting
-    va_list args;
+    __builtin_va_list args;
     va_start(args, format);
 
     /*
