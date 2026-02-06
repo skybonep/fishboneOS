@@ -7,6 +7,7 @@
 #include <kernel/tty.h>
 #include <drivers/serial.h>
 #include <kernel/log.h>
+#include <kernel/gdt.h>
 #include <kernel/info.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
@@ -31,6 +32,9 @@ void kernel_main(void)
 
 	/* Initialize the serial driver first */
 	serial_init(SERIAL_COM1_BASE);
+
+    /* Initialize the GDT */
+    gdt_init();
 
 	/* Log messages at various severity levels */
 	kprint(LOG_DEBUG, "This is a debug message.");
