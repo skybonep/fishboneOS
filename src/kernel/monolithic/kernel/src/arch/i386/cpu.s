@@ -48,3 +48,17 @@ load_gdt:
     ljmp $0x08, $.flush
 .flush:
     ret
+
+.global load_idt
+.type load_idt, @function
+load_idt:
+    # Get the pointer to idt_ptr from the stack.
+    # [esp] is the return address, [esp + 4] is the first argument.
+    mov 4(%esp), %eax
+
+    # Load the IDT using the 'lidt' instruction.
+    # The CPU expects the address of the 6-byte idt_ptr structure.
+    lidt (%eax)
+
+    # Return to the calling C function (idt_init)
+    ret
