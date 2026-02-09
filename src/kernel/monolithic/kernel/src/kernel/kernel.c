@@ -36,7 +36,7 @@ void kernel_main(void)
 	pic_disable_all_irq();
 
     /* Enable the keyboard interrupt */
-    pic_enable_irq(1); 
+    pic_enable_irq(1);
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
@@ -50,11 +50,16 @@ void kernel_main(void)
 	serial_init(SERIAL_COM1_BASE);
 
 	/* Log messages at various severity levels */
-	kprint(LOG_DEBUG, "This is a debug message.");
+	kprint(LOG_DEBUG, "This is a debug message. %s", "Useful for developers.");
 	kprint(LOG_INFO, "System initialized successfully.");
 	kprint(LOG_WARNING, "Low memory warning.");
 	kprint(LOG_ERROR, "An error has occurred!");
 	kprint(LOG_FATAL, "Fatal error! System halt.");
 
 	log_system_info();
+
+	/* Keep the kernel running to process interrupts */
+	while(1) {
+		asm volatile("hlt");  /* Halt CPU until next interrupt */
+	}
 }

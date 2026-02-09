@@ -62,3 +62,27 @@ load_idt:
 
     # Return to the calling C function (idt_init)
     ret
+
+# Macro for interrupts that do not push an error code [2]
+.macro no_error_code_interrupt_handler num
+.global interrupt_handler_\num
+interrupt_handler_\num:
+    push $0                     # Push dummy error code [2]
+    push $\num                  # Push the interrupt number (33) [2]
+    jmp common_interrupt_handler # Jump to the shared logic [2]
+.endm
+
+# Define the specific handler for the keyboard (33)
+no_error_code_interrupt_handler 33
+
+# The common handler saves the state and calls C [3]
+common_interrupt_handler:
+    pusha                       # Save eax, ebx, ecx, edx, esp, ebp, esi, edi [3]
+
+    # Call the C dispatcher. The struct cpu_state will be mapped 
+    # to the registers we just pushed.
+    call interrupt_handler      # [3]
+
+    popa                        # Restore the registers [3]
+    add $8, %esp                # Clean up the interrupt number and dummy error code [5]
+    iret                        # Return to the interrupted code [4, 5]
