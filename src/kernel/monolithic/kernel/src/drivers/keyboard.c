@@ -8,7 +8,7 @@
 /* 
  * US QWERTY Scan Code Set 1 Mapping 
  * This table maps the "make" (press) codes to ASCII characters.
- * Full mapping should be derived from the tutorial mentioned in the sources [2].
+ * Full mapping should be derived from the tutorial mentioned in the sources.
  */
 unsigned char kbd_us[] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
@@ -27,7 +27,7 @@ char translate_scan_code(unsigned char scan_code) {
         return 0; 
     }
 
-    /* Map the "make" code to ASCII using our table [2] */
+    /* Map the "make" code to ASCII using our table */
     if (scan_code < 128) {
         return kbd_us[scan_code];
     }
@@ -55,14 +55,14 @@ void itoa_temp(unsigned int num, char *str, int base) {
  * Reads the scan code, translates it, and prints the character.
  */
 void keyboard_handle_interrupt() {
-    // 1. Read the scan code from the hardware port [4, 5]
+    // 1. Read the scan code from the hardware port
     unsigned char scan_code = inb(KBD_DATA_PORT);
 
     char buffer[16];
     itoa_temp(scan_code, buffer, 16);
 
     // 2. Translate scan code to ASCII 
-    // (Note: The keyboard sends scan codes, not characters [5])
+    // (Note: The keyboard sends scan codes, not characters)
     char c = translate_scan_code(scan_code); 
 
     // 3. Print the character if it's a valid keypress
@@ -77,7 +77,7 @@ void keyboard_handle_interrupt() {
         kprint(LOG_DEBUG, buffer); // Log the scan code in hex
     }
 
-    // 4. Acknowledging the PIC is mandatory to receive next interrupts [5, 6]
-    // IRQ 1 is remapped to interrupt 33 (0x21) [7]
+    // 4. Acknowledging the PIC is mandatory to receive next interrupts
+    // IRQ 1 is remapped to interrupt 33 (0x21)
     pic_sendEOI(33); 
 }
