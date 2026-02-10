@@ -2,7 +2,7 @@
 
 #define KBD_DATA_PORT 0x60
 
-/* Defined in Chapter 6 of the sources [1] */
+/* Defined in Chapter 6 of the sources */
 struct cpu_state
 {
     unsigned int edi, esi, ebp, esp, ebx, edx, ecx, eax;
