@@ -26,9 +26,9 @@
 void kernel_main(void)
 {
 	/* Initialize terminal interface */
-	terminal_initialize();
+	terminal_init();
 
-    gdt_init();
+	gdt_init();
 
 	idt_init();
 
@@ -36,8 +36,8 @@ void kernel_main(void)
 
 	pic_disable_all_irq();
 
-    /* Enable the keyboard interrupt */
-    pic_enable_irq(1);
+	/* Enable the keyboard interrupt */
+	pic_enable_irq(1);
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
@@ -59,24 +59,22 @@ void kernel_main(void)
 
 	log_system_info();
 
-	char buf[1]; 
+	char buf[1];
 	itoa(1234, buf, 10);
 	kprint(LOG_DEBUG, buf);
 
 	char buf2[10];
-	sprintf(buf2, "Value: %s: %d", "test", 5678);
+	sprintf(buf2, "Value: %s: %09d", "test", 5678);
 	kprint(LOG_DEBUG, buf2);
 	printf("Value: %s: %d\n", "test", 5678);
-
 
 	sprintf(buf2, "Binary Value: %b", 7);
 	kprint(LOG_DEBUG, buf2);
 	printf("Binary Value: %b\n", 7);
 
-
-
 	/* Keep the kernel running to process interrupts */
-	while(1) {
-		asm volatile("hlt");  /* Halt CPU until next interrupt */
+	while (1)
+	{
+		asm volatile("hlt"); /* Halt CPU until next interrupt */
 	}
 }
