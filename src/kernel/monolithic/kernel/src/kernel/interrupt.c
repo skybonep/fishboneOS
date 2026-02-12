@@ -16,7 +16,10 @@ struct stack_state
     unsigned int eflags;
 } __attribute__((packed));
 
-void interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct stack_state stack)
+void interrupt_handler(
+    struct cpu_state cpu __attribute__((unused)),
+    unsigned int interrupt,
+    struct stack_state stack __attribute__((unused)))
 {
     if (interrupt == 33)
     {
