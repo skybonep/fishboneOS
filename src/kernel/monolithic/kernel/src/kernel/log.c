@@ -1,3 +1,4 @@
+#include <stdio.h> 
 #include <kernel/log.h>
 #include <drivers/serial.h>
 #include <stdarg.h>
@@ -10,39 +11,31 @@ static const char *level_tags[] = {
     "[FATAL] "
 };
 
-/*
-    * kprint:
-    * A printf-like string format parsing utility for kernel diagnostics
-    * It prepends a severity tag and sends the formatted output to the 
-    * primary logging device (typically the serial port)
-    *
-    * @param level  The severity level (LOG_DEBUG, LOG_INFO, etc.).
-    * @param format The format string (e.g., "Memory at %x").
-    *
-    * Note:
-    * - This is a simplified implementation. It currently does not parse
-    *   format specifiers like %s, %d, %x, etc. You can extend it as needed. (or it already does so?)
-    * - Called seria_write 3 times because:
-    *   Stack Constraints: If you create a large buffer (e.g., char buf) inside kprint, it sits on the Kernel Stack. If your stack is small (like the 4KB stack often used in early kernels), you risk a stack overflow if kprint is called deep within a chain of other functions.
-*/
+/**
+ * kprint:
+ * Formats a message and writes it to the serial port (COM1).
+ * Supports severity levels (DEBUG, INFO, ERROR, etc.) and printf-like formatting.
+ */
 void kprint(int level, const char *format, ...) {
-    // Output the tag to COM1 via serial_write
+    // 1. Declare a 1024-byte buffer on the stack for the formatted message.
+    // This is a standard size for small kernel-mode log lines.
+    char buf[1024]; 
+    va_list args;
+
+    // 2. Output the severity level tag (e.g., "[DEBUG] ") to the serial port.
     if (level >= LOG_DEBUG && level <= LOG_FATAL) {
         serial_write(SERIAL_COM1_BASE, (char*)level_tags[level]);
     }
 
-    // Handle formatting
-    __builtin_va_list args;
+    // 3. Initialize the variable argument list and pass it to the vsprintf engine.
+    // This allows kprint to handle complex specifiers like %d, %x, and %b.
     va_start(args, format);
-
-    /*
-     * As you grow the project, you can add a parser here for
-     * %s, %x, etc., as "functions are added on-demand"
-     */
-    serial_write(SERIAL_COM1_BASE, (char*)format);
-
+    vsprintf(buf, format, args);
     va_end(args);
 
-    // Newline for log readability
+    // 4. Send the fully formatted message to the serial port hardware.
+    serial_write(SERIAL_COM1_BASE, buf);
+
+    // 5. Append a newline for readability in your logging file.
     serial_write(SERIAL_COM1_BASE, "\n");
 }

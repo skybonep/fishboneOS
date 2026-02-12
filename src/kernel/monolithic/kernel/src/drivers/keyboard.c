@@ -76,8 +76,4 @@ void keyboard_handle_interrupt() {
         buffer[5] = '\0';
         kprint(LOG_DEBUG, buffer); // Log the scan code in hex
     }
-
-    // 4. Acknowledging the PIC is mandatory to receive next interrupts
-    // IRQ 1 is remapped to interrupt 33 (0x21)
-    pic_sendEOI(33); 
 }

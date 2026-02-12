@@ -9,13 +9,13 @@
  * @return The number of characters written.
  */
 int printf(const char *fmt, ...) {
-    // We use a buffer to store the formatted string before output [1].
+    // We use a buffer to store the formatted string before output.
     // 1024 bytes is a common limit for kernel-mode log lines.
     char buf[1024]; 
     va_list args;
     
     va_start(args, fmt);
-    // Reuse the core vsprintf engine we created earlier [2].
+    // Reuse the core vsprintf engine we created earlier.
     int len = vsprintf(buf, fmt, args);
     va_end(args);
 
