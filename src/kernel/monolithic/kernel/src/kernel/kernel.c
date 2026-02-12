@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <kernel/tty.h>
 #include <drivers/serial.h>
@@ -57,6 +58,22 @@ void kernel_main(void)
 	kprint(LOG_FATAL, "Fatal error! System halt.");
 
 	log_system_info();
+
+	char buf[1]; 
+	itoa(1234, buf, 10);
+	kprint(LOG_DEBUG, buf);
+
+	char buf2[10];
+	sprintf(buf2, "Value: %s: %d", "test", 5678);
+	kprint(LOG_DEBUG, buf2);
+	printf("Value: %s: %d\n", "test", 5678);
+
+
+	sprintf(buf2, "Binary Value: %b", 7);
+	kprint(LOG_DEBUG, buf2);
+	printf("Binary Value: %b\n", 7);
+
+
 
 	/* Keep the kernel running to process interrupts */
 	while(1) {

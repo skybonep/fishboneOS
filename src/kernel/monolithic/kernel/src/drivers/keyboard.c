@@ -72,8 +72,8 @@ void keyboard_handle_interrupt() {
                 buffer[i] = ' ';
             }
         }
-        buffer[5] = c;
-        buffer[6] = '\0';
+        buffer[4] = c;
+        buffer[5] = '\0';
         kprint(LOG_DEBUG, buffer); // Log the scan code in hex
     }
 
