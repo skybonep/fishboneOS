@@ -51,26 +51,13 @@ void kernel_main(void)
 	serial_init(SERIAL_COM1_BASE);
 
 	/* Log messages at various severity levels */
-	kprint(LOG_DEBUG, "This is a debug message. %s", "Useful for developers.");
-	kprint(LOG_INFO, "System initialized successfully.");
-	kprint(LOG_WARNING, "Low memory warning.");
-	kprint(LOG_ERROR, "An error has occurred!");
-	kprint(LOG_FATAL, "Fatal error! System halt.");
+	printk(LOG_DEBUG, "This is a debug message. %s", "Useful for developers.");
+	printk(LOG_INFO, "System initialized successfully.");
+	printk(LOG_WARNING, "Low memory warning.");
+	printk(LOG_ERROR, "An error has occurred!");
+	printk(LOG_FATAL, "Fatal error! System halt.");
 
 	log_system_info();
-
-	char buf[1];
-	itoa(1234, buf, 10);
-	kprint(LOG_DEBUG, buf);
-
-	char buf2[10];
-	sprintf(buf2, "Value: %s: %09d", "test", 5678);
-	kprint(LOG_DEBUG, buf2);
-	printf("Value: %s: %d\n", "test", 5678);
-
-	sprintf(buf2, "Binary Value: %b", 7);
-	kprint(LOG_DEBUG, buf2);
-	printf("Binary Value: %b\n", 7);
 
 	/* Keep the kernel running to process interrupts */
 	while (1)
