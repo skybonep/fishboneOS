@@ -11,6 +11,7 @@
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
 #include <kernel/pic.h>
+#include <kernel/multiboot.h>
 #include <kernel/info.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
@@ -23,11 +24,13 @@
 #warning "This tutorial needs to be compiled with a ix86-elf compiler"
 #endif
 
-void kernel_main(void)
-{
-	/* Initialize terminal interface */
-	terminal_init();
+// Access the linker labels as "functions" to get their addresses
+extern void kernel_physical_start(void);
+extern void kernel_physical_end(void);
 
+void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
+// void kernel_main(uint32_t mb_ptr)
+{
 	gdt_init();
 
 	idt_init();
@@ -42,22 +45,21 @@ void kernel_main(void)
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
 
-	/* Newline support is left as an exercise. */
-	terminal_writestring("Hello, kernel World!\n");
-
-	printf("Printf says hello too!\n");
-
 	/* Initialize the serial driver first */
 	serial_init(SERIAL_COM1_BASE);
 
-	/* Log messages at various severity levels */
-	printk(LOG_DEBUG, "This is a debug message. %s", "Useful for developers.");
-	printk(LOG_INFO, "System initialized successfully.");
-	printk(LOG_WARNING, "Low memory warning.");
-	printk(LOG_ERROR, "An error has occurred!");
-	printk(LOG_FATAL, "Fatal error! System halt.");
+	/* Initialize terminal interface */
+	terminal_init();
+
+	// Log kernel boundaries (todo: this is temporary until we implement a proper memory map)
+	uint32_t k_start = (uint32_t)&kernel_physical_start;
+	uint32_t k_end = (uint32_t)&kernel_physical_end;
+	printk(LOG_INFO, "Kernel resides at: 0x%08x - 0x%08x", k_start, k_end);
 
 	log_system_info();
+
+	multiboot_info_t *mbinfo = (multiboot_info_t *)multiboot_info_ptr;
+	multiboot_info(multiboot_magic, mbinfo);
 
 	/* Keep the kernel running to process interrupts */
 	while (1)

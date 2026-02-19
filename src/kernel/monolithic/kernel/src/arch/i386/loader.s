@@ -76,6 +76,14 @@ _start:
 	runtime support to work as well.
 	*/
 
+    /*
+    Push arguments for kernel_main in right-to-left order (cdecl).
+    1. ebx contains the pointer to the multiboot info structure.
+    2. eax contains the multiboot magic number (0x2BADB002).
+    */
+    push %ebx    /* Second argument: addr */
+    push %eax    /* First argument: magic */
+
 	/*
 	Enter the high-level kernel. The ABI requires the stack is 16-byte
 	aligned at the time of the call instruction (which afterwards pushes
