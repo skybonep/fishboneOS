@@ -1,3 +1,6 @@
+#ifndef KERNEL_MULTIBOOT_H
+#define KERNEL_MULTIBOOT_H
+
 #include <stdint.h>
 
 typedef struct {
@@ -31,3 +34,5 @@ typedef struct {
     uint64_t len;
     uint32_t type;
 } __attribute__((packed)) multiboot_memory_map_t;
+
+#endif /* MULTIBOOT_H */
