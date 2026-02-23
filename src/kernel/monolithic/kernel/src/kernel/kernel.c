@@ -13,6 +13,7 @@
 #include <kernel/pic.h>
 #include <kernel/multiboot.h>
 #include <kernel/pmm.h>
+#include <kernel/paging.h>
 #include <kernel/info.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
@@ -50,6 +51,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	multiboot_info_t *mbinfo = (multiboot_info_t *)multiboot_info_ptr;
 	pmm_init(mbinfo);
+
+	paging_init();
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
