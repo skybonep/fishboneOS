@@ -6,10 +6,22 @@ read_cr0:
     mov %cr0, %eax    # Move CR0 to EAX (return register)
     ret
 
+.global read_cr2
+.type read_cr2, @function
+read_cr2:
+    mov %cr2, %eax    # Move CR2 to EAX (return register)
+    ret
+
 .global read_cr3
 .type read_cr3, @function
 read_cr3:
     mov %cr3, %eax    # Move CR3 to EAX
+    ret
+
+.global read_cr4
+.type read_cr4, @function
+read_cr4:
+    mov %cr4, %eax    # Move CR4 to EAX
     ret
 
 .global read_ebx
