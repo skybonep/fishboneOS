@@ -14,6 +14,7 @@
 #include <kernel/multiboot.h>
 #include <kernel/pmm.h>
 #include <kernel/paging.h>
+#include <kernel/malloc.h>
 #include <kernel/info.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
@@ -29,6 +30,40 @@
 // Access the linker labels as "functions" to get their addresses
 extern void kernel_physical_start(void);
 extern void kernel_physical_end(void);
+
+
+void test_heap(void) {
+    printk(LOG_INFO, "--- fishboneOS Kernel Heap Test ---");
+
+    // 1. Request memory for a 32-bit integer.
+    // This tests if the heap can find or create a free chunk.
+    uint32_t *test_ptr = (uint32_t*)kmalloc(sizeof(uint32_t));
+
+    // 2. Perform a NULL check.
+    // As noted in the sources, accessing unallocated memory is a "paddlin'" [2, 3].
+    if (test_ptr == NULL) {
+        printk(LOG_ERROR, "RESULT: FAILURE - kmalloc returned NULL.");
+        return;
+    }
+
+    // 3. Write a distinguishable value (the "Hard Truth") to the frame [4].
+    uint32_t test_value = 0xDEADBEEF;
+    *test_ptr = test_value;
+
+    // 4. Read back the value to verify the VMM translation and heap headers.
+    if (*test_ptr == test_value) {
+        printk(LOG_INFO, "RESULT: SUCCESS - Allocated at %p, Value: 0x%x", test_ptr, *test_ptr);
+    } else {
+        printk(LOG_ERROR, "RESULT: CORRUPTION - Expected 0x%x but found 0x%x at %p", 
+               test_value, *test_ptr, test_ptr);
+    }
+
+    // 5. Free the memory to prevent a "memory leak" [5].
+    // Long-running kernels must be disciplined to avoid thrashing physical memory [6, 7].
+    kfree(test_ptr);
+    printk(LOG_INFO, "INFO: Memory at %p has been freed.", test_ptr);
+    printk(LOG_INFO, "-----------------------------------");
+}
 
 void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 {
@@ -95,6 +130,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 			(uint32_t)phys_addr, data_ptr);
 
 	}
+
+	test_heap();
 
 
 	/* Keep the kernel running to process interrupts */
