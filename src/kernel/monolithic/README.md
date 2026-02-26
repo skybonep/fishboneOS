@@ -5,7 +5,7 @@ make
 
 # Execute
 ```
-qemu-system-i386 -kernel monolithic.bin -serial stdio
+qemu-system-i386 -cdrom ../../../build/dist/monolithic.iso -serial stdio
 ```
 
 # Clean

@@ -11,6 +11,10 @@
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
 #include <kernel/pic.h>
+#include <kernel/multiboot.h>
+#include <kernel/pmm.h>
+#include <kernel/paging.h>
+#include <kernel/malloc.h>
 #include <kernel/info.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
@@ -23,11 +27,46 @@
 #warning "This tutorial needs to be compiled with a ix86-elf compiler"
 #endif
 
-void kernel_main(void)
-{
-	/* Initialize terminal interface */
-	terminal_init();
+// Access the linker labels as "functions" to get their addresses
+extern void kernel_physical_start(void);
+extern void kernel_physical_end(void);
 
+
+void test_heap(void) {
+    printk(LOG_INFO, "--- fishboneOS Kernel Heap Test ---");
+
+    // 1. Request memory for a 32-bit integer.
+    // This tests if the heap can find or create a free chunk.
+    uint32_t *test_ptr = (uint32_t*)kmalloc(sizeof(uint32_t));
+
+    // 2. Perform a NULL check.
+    // As noted in the sources, accessing unallocated memory is a "paddlin'" [2, 3].
+    if (test_ptr == NULL) {
+        printk(LOG_ERROR, "RESULT: FAILURE - kmalloc returned NULL.");
+        return;
+    }
+
+    // 3. Write a distinguishable value (the "Hard Truth") to the frame [4].
+    uint32_t test_value = 0xDEADBEEF;
+    *test_ptr = test_value;
+
+    // 4. Read back the value to verify the VMM translation and heap headers.
+    if (*test_ptr == test_value) {
+        printk(LOG_INFO, "RESULT: SUCCESS - Allocated at %p, Value: 0x%x", test_ptr, *test_ptr);
+    } else {
+        printk(LOG_ERROR, "RESULT: CORRUPTION - Expected 0x%x but found 0x%x at %p", 
+               test_value, *test_ptr, test_ptr);
+    }
+
+    // 5. Free the memory to prevent a "memory leak" [5].
+    // Long-running kernels must be disciplined to avoid thrashing physical memory [6, 7].
+    kfree(test_ptr);
+    printk(LOG_INFO, "INFO: Memory at %p has been freed.", test_ptr);
+    printk(LOG_INFO, "-----------------------------------");
+}
+
+void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
+{
 	gdt_init();
 
 	idt_init();
@@ -39,38 +78,61 @@ void kernel_main(void)
 	/* Enable the keyboard interrupt */
 	pic_enable_irq(1);
 
-	/* Enable interrupts after PIC setup */
-	asm volatile("sti");
-
-	/* Newline support is left as an exercise. */
-	terminal_writestring("Hello, kernel World!\n");
-
-	printf("Printf says hello too!\n");
-
 	/* Initialize the serial driver first */
 	serial_init(SERIAL_COM1_BASE);
 
-	/* Log messages at various severity levels */
-	kprint(LOG_DEBUG, "This is a debug message. %s", "Useful for developers.");
-	kprint(LOG_INFO, "System initialized successfully.");
-	kprint(LOG_WARNING, "Low memory warning.");
-	kprint(LOG_ERROR, "An error has occurred!");
-	kprint(LOG_FATAL, "Fatal error! System halt.");
+	/* Initialize terminal interface */
+	terminal_init();
+
+	multiboot_info_t *mbinfo = (multiboot_info_t *)multiboot_info_ptr;
+	pmm_init(mbinfo);
+
+	paging_init();
+
+	/* Enable interrupts after PIC setup */
+	asm volatile("sti");
+
+	// Log kernel boundaries (todo: this is temporary until we implement a proper memory map)
+	uint32_t k_start = (uint32_t)&kernel_physical_start;
+	uint32_t k_end = (uint32_t)&kernel_physical_end;
+	printk(LOG_INFO, "Kernel resides at: 0x%08x - 0x%08x", k_start, k_end);
 
 	log_system_info();
 
-	char buf[1];
-	itoa(1234, buf, 10);
-	kprint(LOG_DEBUG, buf);
+	multiboot_info(multiboot_magic, mbinfo);
 
-	char buf2[10];
-	sprintf(buf2, "Value: %s: %09d", "test", 5678);
-	kprint(LOG_DEBUG, buf2);
-	printf("Value: %s: %d\n", "test", 5678);
+    // 1. Request a free 4 KiB frame from the PMM
+    void* phys_addr = pmm_alloc_frame();
 
-	sprintf(buf2, "Binary Value: %b", 7);
-	kprint(LOG_DEBUG, buf2);
-	printf("Binary Value: %b\n", 7);
+    // 2. Error Checking: Ensure we haven't run out of memory [3]
+    if (phys_addr == NULL) {
+        printk(LOG_ERROR, "PMM: Out of physical memory!");
+    } else {
+		printk(LOG_INFO, "PMM: Allocated frame at physical address 0x%08x", (uint32_t)phys_addr);
+
+		// 3. Treat the physical address as a character pointer.
+		// Because paging is disabled, we can write to this address directly [1, 6].
+		char* data_ptr = (char*)phys_addr;
+
+		// 4. Write "fishboneOS" into the allocated physical memory.
+		const char* test_msg = "fishboneOS";
+		int i = 0;
+		while (test_msg[i] != '\0') 
+		{
+			data_ptr[i] = test_msg[i];
+			i++;
+		}
+		data_ptr[i] = '\0'; // Add null terminator [7].
+
+		// 5. Read the data back from memory to verify the "Physical Reality".
+		// We log the result to Bochs serial port for confirmation.
+		printk(LOG_INFO, "PMM Test: Wrote to phys 0x%08x. Read back: '%s'", 
+			(uint32_t)phys_addr, data_ptr);
+
+	}
+
+	test_heap();
+
 
 	/* Keep the kernel running to process interrupts */
 	while (1)

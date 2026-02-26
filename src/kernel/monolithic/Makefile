@@ -20,22 +20,35 @@ SOURCES := $(shell find kernel libc -type f \( -name '*.c' -o -name '*.s' \) 2>/
 OBJS := $(patsubst %.c,%.o,$(SOURCES))
 OBJS := $(patsubst %.s,%.o,$(OBJS))
 
-BIN := monolithic.bin
 LINKER := linker.ld
 ISO := monolithic.iso
 PROJECT_ROOT := ../../..
-ISO_OUT := $(PROJECT_ROOT)/build/iso/boot
+BUILD_DIR    := $(PROJECT_ROOT)/build
+KERNEL_BIN   := $(BUILD_DIR)/kernel/monolithic.bin
+ISO_STAGING  := $(BUILD_DIR)/iso_staging
+DIST_DIR     := $(BUILD_DIR)/dist
+ISO_IMAGE    := $(DIST_DIR)/monolithic.iso
 
 .PHONY: all clean
 
-all: $(ISO_OUT)/$(ISO)
+all: $(ISO_IMAGE)
 
-$(ISO_OUT)/$(ISO): $(BIN) | $(ISO_OUT)
-	$(GRUB) -o $@ .
+$(ISO_IMAGE): $(KERNEL_BIN) | $(DIST_DIR)
+	@mkdir -p $(ISO_STAGING)/boot/grub
+	@cp $(KERNEL_BIN) $(ISO_STAGING)/boot/
+	@cp boot/grub/grub.cfg $(ISO_STAGING)/boot/grub/
+	$(GRUB) -o $@ $(ISO_STAGING)
+	@rm -rf $(ISO_STAGING)
 	@echo "ISO created: $@"
 
-$(BIN): $(OBJS) $(LINKER)
+$(DIST_DIR):
+	mkdir -p $@
+
+$(KERNEL_BIN): $(OBJS) $(LINKER) | $(BUILD_DIR)/kernel
 	$(CC) -T $(LINKER) -o $@ $(OBJS) $(LDFLAGS)
+
+$(BUILD_DIR)/kernel:
+	mkdir -p $@
 
 $(ARCH_DIR)/%.o: $(ARCH_DIR)/%.s
 	$(AS) $< -o $@
@@ -49,9 +62,6 @@ $(KERNEL_DIR)/%.o: $(KERNEL_DIR)/%.c
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
 
-$(ISO_OUT):
-	mkdir -p $@
-
 clean:
-	rm -f $(OBJS) $(BIN)
-	rm -f $(ISO_OUT)/$(ISO)
+	rm -f $(OBJS)
+	rm -rf $(BUILD_DIR)

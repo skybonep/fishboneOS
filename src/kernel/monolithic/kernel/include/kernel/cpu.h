@@ -3,7 +3,9 @@
 
 /* Prototypes for assembly functions in info.s */
 unsigned int read_cr0(void);
+unsigned int read_cr2(void);
 unsigned int read_cr3(void);
+unsigned int read_cr4(void);
 unsigned int read_ebx(void);
 unsigned int read_esp(void);
 unsigned int read_ebp(void);
