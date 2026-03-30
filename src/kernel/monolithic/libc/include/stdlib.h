@@ -9,6 +9,7 @@
  * @param base The numerical base (2-36).
  * @return A pointer to the resulting string.
  */
-char* itoa(int value, char* str, int base);
+char *itoa(int value, char *str, int base);
+char *uitoa(unsigned int value, char *str, int base);
 
 #endif
