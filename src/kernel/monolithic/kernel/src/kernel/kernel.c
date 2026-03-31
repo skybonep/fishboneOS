@@ -94,6 +94,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	paging_init();
 	heap_init();
+	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
+	test_heap();
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");

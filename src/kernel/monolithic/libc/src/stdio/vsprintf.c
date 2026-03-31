@@ -3,6 +3,27 @@
 #include <stdarg.h>
 #include <string.h> // for strlen
 
+/*
+ * vsprintf:
+ *   Formats the string described by fmt into the provided buffer.
+ *
+ * Supported format specifiers:
+ *   %c    - character (argument promoted from int)
+ *   %s    - null-terminated string pointer
+ *   %d    - signed decimal integer
+ *   %u    - unsigned decimal integer
+ *   %x    - unsigned hexadecimal integer (lowercase)
+ *   %b    - unsigned binary integer
+ *   %p    - pointer value printed as 0x followed by lowercase hex digits
+ *   %%    - literal percent sign
+ *
+ * Formatting options supported:
+ *   0<N>  - zero-padding for numeric output, e.g. %08x
+ *   <N>   - minimum field width for numeric output, e.g. %4u
+ *
+ * Behavior for unsupported specifiers:
+ *   The character after '%' is copied verbatim into the output.
+ */
 int vsprintf(char *buf, const char *fmt, va_list args)
 {
     char *ptr = buf;
@@ -102,6 +123,25 @@ int vsprintf(char *buf, const char *fmt, va_list args)
                 }
             }
 
+            t_ptr = tmp_buf;
+            while (*t_ptr)
+                *ptr++ = *t_ptr++;
+            break;
+        }
+        case 'p':
+        {
+            unsigned int value = (unsigned int)va_arg(args, void *);
+            *ptr++ = '0';
+            *ptr++ = 'x';
+            uitoa(value, tmp_buf, 16);
+            int len = strlen(tmp_buf);
+            if (zero_pad && width > (len + 2))
+            {
+                for (int i = 0; i < (width - len - 2); i++)
+                {
+                    *ptr++ = '0';
+                }
+            }
             t_ptr = tmp_buf;
             while (*t_ptr)
                 *ptr++ = *t_ptr++;

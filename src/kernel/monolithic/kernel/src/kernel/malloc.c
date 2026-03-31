@@ -4,6 +4,14 @@
 #include <kernel/paging.h>
 #include <string.h>
 
+#if (KERNEL_HEAP_START % PAGE_SIZE) != 0
+#error "KERNEL_HEAP_START must be page aligned"
+#endif
+
+#if KERNEL_HEAP_START <= KERNEL_STACK_REGION_END
+#error "KERNEL_HEAP_START overlaps the kernel stack region"
+#endif
+
 /*
  * The Free List: A doubly-linked list of memory chunks [1].
  * Every chunk is prefixed with a header (boundary tag) [1].
@@ -21,13 +29,21 @@ static header_t *expand_heap(size_t size)
     size_t total_required = size + sizeof(header_t);
     uint32_t num_pages = (total_required + PAGE_SIZE - 1) / PAGE_SIZE;
 
-    header_t *new_chunk = (header_t *)heap_end_vaddr;
+    uint32_t old_heap_end = heap_end_vaddr;
+    header_t *new_chunk = (header_t *)old_heap_end;
+    void *allocated_frames[num_pages];
+    uint32_t pages_mapped = 0;
 
     for (uint32_t i = 0; i < num_pages; i++)
     {
+        if (heap_end_vaddr > KERNEL_HEAP_END - PAGE_SIZE + 1)
+            goto rollback;
+
         void *phys_frame = pmm_alloc_frame();
         if (phys_frame == NULL)
-            return NULL; // Deserves a "paddlin'" [5, 6]
+            goto rollback; // Deserves a "paddlin'" [5, 6]
+
+        allocated_frames[pages_mapped++] = phys_frame;
 
         // Map the physical frame to the virtual heap address [2]
         vmm_map_page(heap_end_vaddr, (uint32_t)phys_frame, PAGE_PRESENT | PAGE_WRITE);
@@ -40,6 +56,16 @@ static header_t *expand_heap(size_t size)
     new_chunk->prev = NULL;
 
     return new_chunk;
+
+rollback:
+    for (uint32_t i = 0; i < pages_mapped; i++)
+    {
+        uint32_t rollback_vaddr = old_heap_end + (i * PAGE_SIZE);
+        vmm_unmap_page(rollback_vaddr);
+        pmm_free_frame(allocated_frames[i]);
+    }
+    heap_end_vaddr = old_heap_end;
+    return NULL;
 }
 
 /**
@@ -143,4 +169,9 @@ void heap_init(void)
     free_list_start = NULL;
     heap_end_vaddr = HEAP_START;
     free_list_start = expand_heap(0);
+}
+
+uint32_t heap_get_end_vaddr(void)
+{
+    return heap_end_vaddr;
 }
