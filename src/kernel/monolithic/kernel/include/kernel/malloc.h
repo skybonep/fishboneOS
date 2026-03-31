@@ -16,6 +16,7 @@ typedef struct header
 
 void *kmalloc(size_t size);
 void kfree(void *ptr);
+void heap_init(void);
 
 // static header_t *free_list_start = NULL;
 // static uint32_t heap_end_vaddr = HEAP_START;

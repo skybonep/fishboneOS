@@ -7,6 +7,10 @@
 extern void load_page_directory(uint32_t *directory);
 extern void enable_paging(void);
 
+// Linker labels exported from linker.ld for the kernel physical image.
+extern uint32_t kernel_physical_start;
+extern uint32_t kernel_physical_end;
+
 /**
  * paging_init:
  * Bootstraps the paging system, maps the kernel into the higher-half,
@@ -14,48 +18,58 @@ extern void enable_paging(void);
  */
 void paging_init()
 {
-    // 1. Allocate physical frames for the PDT and the initial Page Table.
-    // Paging structures MUST be aligned on 4096-byte boundaries.
+    // 1. Allocate physical frames for the PDT and initial Page Tables.
     uint32_t pdt_phys = (uint32_t)pmm_alloc_frame();
     uint32_t pt_low_phys = (uint32_t)pmm_alloc_frame();
+    uint32_t pt_kernel_phys = (uint32_t)pmm_alloc_frame();
 
-    // While bootstrapping (before paging is enabled), we can access
-    // these physical addresses directly.
     uint32_t *pdt = (uint32_t *)pdt_phys;
     uint32_t *pt_low = (uint32_t *)pt_low_phys;
+    uint32_t *pt_kernel = (uint32_t *)pt_kernel_phys;
 
-    // 2. Clear the Page Directory to ensure all entries are 'Not Present'.
-    for (int i = 0; i < 1024; i++)
-    {
-        pdt[i] = 0x00000000;
-    }
+    // 2. Clear the Page Directory and page tables.
+    memset(pdt, 0, PAGE_SIZE);
+    memset(pt_low, 0, PAGE_SIZE);
+    memset(pt_kernel, 0, PAGE_SIZE);
 
-    // 3. Identity Map the first 4 MB (0x0 to 0x3FFFFF).
-    // This prevents the CPU from crashing the moment paging is enabled.
+    // 3. Identity Map the first 4 MB (0x00000000-0x003FFFFF).
     uint32_t identity_entries = (IDENTITY_MAP_END - IDENTITY_MAP_START + 1) / PAGE_SIZE;
     for (uint32_t i = 0; i < identity_entries; i++)
     {
         pt_low[i] = (i * PAGE_SIZE) | PAGE_PRESENT | PAGE_WRITE;
     }
-
-    // 4. Link the PT into the Page Directory at Index 0.
-    // This handles the current physical location of your code.
     pdt[0] = pt_low_phys | PAGE_PRESENT | PAGE_WRITE;
 
-    // 5. Higher-Half Mapping (Index based on KERNEL_VIRT_BASE).
-    // Maps virtual KERNEL_VIRT_BASE to the same physical first 4 MB.
+    // 4. Map the kernel physical image into the higher-half.
     uint32_t kernel_pde_idx = KERNEL_VIRT_BASE >> 22;
-    pdt[kernel_pde_idx] = pt_low_phys | PAGE_PRESENT | PAGE_WRITE;
+    uint32_t kernel_start_page = (uint32_t)&kernel_physical_start / PAGE_SIZE;
+    uint32_t kernel_end_page = (((uint32_t)&kernel_physical_end - 1) / PAGE_SIZE);
+    uint32_t kernel_page_count = kernel_end_page - kernel_start_page + 1;
 
-    // 6. THE RECURSIVE MAPPING ENTRY (Index 1023).
-    // Map the PDT to itself. This allows the VMM to see the paging structures
-    // as data at virtual address 0xFFFFF000.
+    for (uint32_t i = 0; i < kernel_page_count; i++)
+    {
+        pt_kernel[i] = ((kernel_start_page + i) * PAGE_SIZE) | PAGE_PRESENT | PAGE_WRITE;
+    }
+    pdt[kernel_pde_idx] = pt_kernel_phys | PAGE_PRESENT | PAGE_WRITE;
+
+    // 5. Reserve the heap region with a dedicated PDE entry.
+    uint32_t heap_pde_idx = KERNEL_HEAP_START >> 22;
+    pdt[heap_pde_idx] = 0; // Leave unmapped until the heap is actually used.
+
+    // 6. Map the initial kernel stack pages inside the same higher-half PT.
+    uint32_t stack_pde_idx = KERNEL_STACK_REGION_START >> 22;
+    uint32_t stack_pt_index = (KERNEL_STACK_REGION_START - KERNEL_VIRT_BASE) / PAGE_SIZE;
+    for (uint32_t i = 0; i < (KERNEL_STACK_SIZE / PAGE_SIZE); i++)
+    {
+        void *stack_frame = pmm_alloc_frame();
+        pt_kernel[stack_pt_index + i] = (uint32_t)stack_frame | PAGE_PRESENT | PAGE_WRITE;
+    }
+    pdt[stack_pde_idx] = pt_kernel_phys | PAGE_PRESENT | PAGE_WRITE;
+
+    // 7. Recursive mapping entry (Index 1023) for VMM access.
     pdt[1023] = pdt_phys | PAGE_PRESENT | PAGE_WRITE;
 
-    // 7. Commit to Hardware.
-    // The load_page_directory function expects the PHYSICAL address.
+    // 8. Install paging.
     load_page_directory((uint32_t *)pdt_phys);
     enable_paging();
-
-    // Once enabled, the CPU uses the 'Desirable Illusion' of virtual addresses.
 }

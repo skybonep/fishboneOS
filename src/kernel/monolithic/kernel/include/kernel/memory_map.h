@@ -13,12 +13,14 @@
 #define IDENTITY_MAP_END 0x003FFFFF
 
 #define PHYS_KERNEL_BASE 0x00200000
+#define PHYS_KERNEL_END 0x003FFFFF
 
 /*
  * Higher-half kernel virtual layout.
  */
 #define KERNEL_VIRT_BASE 0xC0000000
 #define KERNEL_HEAP_START 0xC0400000
+#define KERNEL_HEAP_END 0xC07FFFFF
 
 /*
  * Reserved kernel stack region in the higher-half.

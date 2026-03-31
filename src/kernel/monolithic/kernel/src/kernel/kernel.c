@@ -93,6 +93,7 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	pmm_init(mbinfo);
 
 	paging_init();
+	heap_init();
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
