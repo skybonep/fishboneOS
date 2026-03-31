@@ -103,11 +103,6 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	uint32_t k_start = (uint32_t)&kernel_physical_start;
 	uint32_t k_end = (uint32_t)&kernel_physical_end;
 	printk(LOG_INFO, "Kernel image physical range: 0x%08x - 0x%08x", k_start, k_end);
-	printk(LOG_INFO, "Memory map plan: kernel virt=0x%08x heap=0x%08x stack region=0x%08x-0x%08x",
-		   KERNEL_VIRT_BASE, KERNEL_HEAP_START,
-		   KERNEL_STACK_REGION_START, KERNEL_STACK_REGION_END);
-	printk(LOG_INFO, "Memory map plan: user space <= 0x%08x, mmio >= 0x%08x", USER_SPACE_END, MMIO_RESERVED_START);
-
 	log_system_info();
 
 	multiboot_info(multiboot_magic, mbinfo);

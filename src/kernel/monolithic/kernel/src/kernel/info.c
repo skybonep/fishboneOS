@@ -1,5 +1,6 @@
 #include <kernel/cpu.h>
 #include <kernel/log.h>
+#include <kernel/memory_layout.h>
 #include <kernel/multiboot.h>
 
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
@@ -22,14 +23,14 @@
 #define CR3_PCD 0x00000010 // Page-level Cache Disable
 
 /* CR4 Bits */
-#define CR4_VME  0x00000001 // Virtual-8086 Mode Extensions
-#define CR4_PVI  0x00000002 // Protected-Mode Virtual Interrupts
-#define CR4_TSD  0x00000004 // Time Stamp Disable
-#define CR4_DE   0x00000008 // Debugging Extensions
-#define CR4_PSE  0x00000010 // Page Size Extensions (Source [1])
-#define CR4_PAE  0x00000020 // Physical Address Extension
-#define CR4_MCE  0x00000040 // Machine-Check Enable
-#define CR4_PGE  0x00000080 // Page Global Enable
+#define CR4_VME 0x00000001 // Virtual-8086 Mode Extensions
+#define CR4_PVI 0x00000002 // Protected-Mode Virtual Interrupts
+#define CR4_TSD 0x00000004 // Time Stamp Disable
+#define CR4_DE 0x00000008  // Debugging Extensions
+#define CR4_PSE 0x00000010 // Page Size Extensions (Source [1])
+#define CR4_PAE 0x00000020 // Physical Address Extension
+#define CR4_MCE 0x00000040 // Machine-Check Enable
+#define CR4_PGE 0x00000080 // Page Global Enable
 
 /**
  * log_cr0_details:
@@ -76,7 +77,7 @@ void log_cr3_details(void)
     unsigned int cr3 = read_cr3();
     printk(LOG_INFO, "--- CR3 Register ---");
     printk(LOG_INFO, "Raw CR3 Value: 0x%08x", cr3);
-    
+
     // Bits 31-12 contain the physical address [5, 7]
     unsigned int pdt_phys = cr3 & 0xFFFFF000;
     printk(LOG_INFO, "  PDT Physical Base: 0x%08x", pdt_phys);
@@ -95,7 +96,7 @@ void log_cr4_details(void)
 
     // Page Size Extensions (Critical for Step 3/4) [1]
     printk(LOG_INFO, "  [PSE] Page Size Extensions: %s", (cr4 & CR4_PSE) ? "ENABLED (4MB pages allowed)" : "DISABLED");
-    
+
     // Other Architectural Extensions (Non-source info)
     printk(LOG_INFO, "  [PAE] Physical Address Ext: %s", (cr4 & CR4_PAE) ? "ON" : "OFF");
     printk(LOG_INFO, "  [PGE] Global Page Enable:   %s", (cr4 & CR4_PGE) ? "ON" : "OFF");
@@ -109,6 +110,7 @@ void log_system_info(void)
     log_cr2_details();
     log_cr3_details();
     log_cr4_details();
+    log_memory_layout();
 }
 
 /**
@@ -122,11 +124,12 @@ void multiboot_info(unsigned int multiboot_magic, multiboot_info_t *mbinfo)
     printk(LOG_INFO, "--- Multiboot Info ---");
     printk(LOG_INFO, "Multiboot magic number: 0x%08x", multiboot_magic);
 
-    if (multiboot_magic != MULTIBOOT_BOOTLOADER_MAGIC) {
+    if (multiboot_magic != MULTIBOOT_BOOTLOADER_MAGIC)
+    {
         printk(LOG_WARNING, "Invalid magic number: 0x%08x. Expected 0x2BADB002.", multiboot_magic);
         printk(LOG_INFO, "------------------------------");
         return;
-	}
+    }
 
     printk(LOG_INFO, "Flags: 0x%08x", mbinfo->flags);
 
@@ -165,20 +168,22 @@ void multiboot_info(unsigned int multiboot_magic, multiboot_info_t *mbinfo)
                mbinfo->mmap_length, mbinfo->mmap_addr);
     }
 
-	// Iterate through the memory map entries
-	if (mbinfo->flags & (1 << 6))
-	{
-		multiboot_memory_map_t *mmap = (multiboot_memory_map_t *)mbinfo->mmap_addr;
+    // Iterate through the memory map entries
+    if (mbinfo->flags & (1 << 6))
+    {
+        multiboot_memory_map_t *mmap = (multiboot_memory_map_t *)mbinfo->mmap_addr;
 
-		while ((uint32_t)mmap < mbinfo->mmap_addr + mbinfo->mmap_length)
-		{
-			// Log each memory segment to your Bochs com1.out [8]
-			printk(LOG_INFO, "Memory Area: 0x%08x | Length: 0x%08x | Type: %d",
-				   (uint32_t)mmap->addr, (uint32_t)mmap->len, mmap->type);
+        while ((uint32_t)mmap < mbinfo->mmap_addr + mbinfo->mmap_length)
+        {
+            // Log each memory segment to your Bochs com1.out [8]
+            printk(LOG_INFO, "Memory Area: 0x%08x | Length: 0x%08x | Type: %d",
+                   (uint32_t)mmap->addr, (uint32_t)mmap->len, mmap->type);
 
-			mmap = (multiboot_memory_map_t *)((uint32_t)mmap + mmap->size + sizeof(mmap->size));
-		}
-	} else {
+            mmap = (multiboot_memory_map_t *)((uint32_t)mmap + mmap->size + sizeof(mmap->size));
+        }
+    }
+    else
+    {
         printk(LOG_ERROR, "Invalid Multiboot memory map!");
     }
 
