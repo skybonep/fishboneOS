@@ -111,6 +111,53 @@ static void boot_run_tests(void)
 	boot_test_heap();
 }
 
+static volatile uint32_t kernel_ticks = 0;
+static volatile uint32_t kernel_last_service_tick = 0;
+static volatile bool kernel_event_pending = false;
+
+static void kernel_initialize_runtime(void)
+{
+	kernel_ticks = 0;
+	kernel_last_service_tick = 0;
+	kernel_event_pending = false;
+}
+
+static void kernel_idle(void)
+{
+	asm volatile("hlt");
+}
+
+static void kernel_dispatch_events(void)
+{
+	if (kernel_event_pending)
+	{
+		/* Placeholder for event queue processing. */
+		kernel_event_pending = false;
+	}
+}
+
+static void kernel_dispatch_periodic_services(void)
+{
+	if (kernel_ticks != kernel_last_service_tick)
+	{
+		kernel_last_service_tick = kernel_ticks;
+		/* Placeholder for timer-driven services such as scheduling or housekeeping. */
+	}
+}
+
+static void kernel_main_loop(void)
+{
+	kernel_initialize_runtime();
+	printk(LOG_INFO, "Kernel runtime: entering main loop");
+
+	while (1)
+	{
+		kernel_dispatch_events();
+		kernel_dispatch_periodic_services();
+		kernel_idle();
+	}
+}
+
 void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 {
 	gdt_init();
@@ -151,9 +198,5 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	multiboot_info(multiboot_magic, mbinfo);
 
-	/* Keep the kernel running to process interrupts */
-	while (1)
-	{
-		asm volatile("hlt"); /* Halt CPU until next interrupt */
-	}
+	kernel_main_loop();
 }
