@@ -7,6 +7,7 @@
 
 #include <kernel/tty.h>
 #include <drivers/serial.h>
+#include <drivers/timer.h>
 #include <kernel/log.h>
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
@@ -187,6 +188,9 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 #ifdef DEBUG
 	boot_run_tests();
 #endif
+
+	/* Initialize periodic timer before enabling interrupts */
+	timer_init(100);
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
