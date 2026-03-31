@@ -32,7 +32,7 @@
 extern void kernel_physical_start(void);
 extern void kernel_physical_end(void);
 
-void test_heap(void)
+static void boot_test_heap(void)
 {
 	printk(LOG_INFO, "--- fishboneOS Kernel Heap Test ---");
 
@@ -70,6 +70,47 @@ void test_heap(void)
 	printk(LOG_INFO, "-----------------------------------");
 }
 
+static void boot_test_pmm(void)
+{
+	// 1. Request a free 4 KiB frame from the PMM
+	void *phys_addr = pmm_alloc_frame();
+
+	// 2. Error Checking: Ensure we haven't run out of memory [3]
+	if (phys_addr == NULL)
+	{
+		printk(LOG_ERROR, "PMM: Out of physical memory!");
+		return;
+	}
+
+	printk(LOG_INFO, "PMM: Allocated frame at physical address 0x%08x", (uint32_t)phys_addr);
+
+	// 3. Treat the physical address as a character pointer.
+	// Because paging is disabled, we can write to this address directly [1, 6].
+	char *data_ptr = (char *)phys_addr;
+
+	// 4. Write "fishboneOS" into the allocated physical memory.
+	const char *test_msg = "fishboneOS";
+	int i = 0;
+	while (test_msg[i] != '\0')
+	{
+		data_ptr[i] = test_msg[i];
+		i++;
+	}
+	data_ptr[i] = '\0'; // Add null terminator [7].
+
+	// 5. Read the data back from memory to verify the "Physical Reality".
+	// We log the result to Bochs serial port for confirmation.
+	printk(LOG_INFO, "PMM Test: Wrote to phys 0x%08x. Read back: '%s'",
+		   (uint32_t)phys_addr, data_ptr);
+}
+
+static void boot_run_tests(void)
+{
+	boot_test_heap();
+	boot_test_pmm();
+	boot_test_heap();
+}
+
 void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 {
 	gdt_init();
@@ -95,7 +136,10 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	paging_init();
 	heap_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
-	test_heap();
+
+#ifdef DEBUG
+	boot_run_tests();
+#endif
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
@@ -106,40 +150,6 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	log_system_info();
 
 	multiboot_info(multiboot_magic, mbinfo);
-
-	// 1. Request a free 4 KiB frame from the PMM
-	void *phys_addr = pmm_alloc_frame();
-
-	// 2. Error Checking: Ensure we haven't run out of memory [3]
-	if (phys_addr == NULL)
-	{
-		printk(LOG_ERROR, "PMM: Out of physical memory!");
-	}
-	else
-	{
-		printk(LOG_INFO, "PMM: Allocated frame at physical address 0x%08x", (uint32_t)phys_addr);
-
-		// 3. Treat the physical address as a character pointer.
-		// Because paging is disabled, we can write to this address directly [1, 6].
-		char *data_ptr = (char *)phys_addr;
-
-		// 4. Write "fishboneOS" into the allocated physical memory.
-		const char *test_msg = "fishboneOS";
-		int i = 0;
-		while (test_msg[i] != '\0')
-		{
-			data_ptr[i] = test_msg[i];
-			i++;
-		}
-		data_ptr[i] = '\0'; // Add null terminator [7].
-
-		// 5. Read the data back from memory to verify the "Physical Reality".
-		// We log the result to Bochs serial port for confirmation.
-		printk(LOG_INFO, "PMM Test: Wrote to phys 0x%08x. Read back: '%s'",
-			   (uint32_t)phys_addr, data_ptr);
-	}
-
-	test_heap();
 
 	/* Keep the kernel running to process interrupts */
 	while (1)
