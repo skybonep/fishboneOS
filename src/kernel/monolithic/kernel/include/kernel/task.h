@@ -49,6 +49,8 @@ typedef struct task
 
 void task_init(void);
 task_t *task_create(void (*entry_point)(void));
+task_context_t *task_schedule(void);
+task_context_t *task_tick(void);
 task_t *task_get_current(void);
 void task_set_current(task_t *task);
 

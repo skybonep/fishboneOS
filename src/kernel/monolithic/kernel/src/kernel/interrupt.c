@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <kernel/pic.h>
+#include <kernel/task.h>
 #include <drivers/timer.h>
 #include <drivers/keyboard.h>
 #include <kernel/log.h>
@@ -79,9 +80,12 @@ void *interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct sta
     // 2. Handle Hardware Interrupts (32+)
     else
     {
+        void *next_context = NULL;
+
         if (interrupt == 32)
         {
             timer_handle_interrupt();
+            next_context = task_tick();
         }
         else if (interrupt == 33)
         {
@@ -94,6 +98,7 @@ void *interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct sta
 
         // Always acknowledge hardware interrupts to the PIC [10, 11]
         pic_sendEOI(interrupt);
+        return next_context;
     }
 
     return NULL;
