@@ -84,6 +84,9 @@ interrupt_handler_\num:
     jmp common_interrupt_handler # Jump to the shared logic
 .endm
 
+# Define the specific handler for the timer (32)
+no_error_code_interrupt_handler 32
+
 # Define the specific handler for the keyboard (33)
 no_error_code_interrupt_handler 33
 

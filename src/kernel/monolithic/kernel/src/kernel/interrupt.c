@@ -1,4 +1,5 @@
 #include <kernel/pic.h>
+#include <drivers/timer.h>
 #include <drivers/keyboard.h>
 #include <kernel/log.h>
 
@@ -76,9 +77,17 @@ void interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct stac
     // 2. Handle Hardware Interrupts (32+)
     else
     {
-        if (interrupt == 33)
+        if (interrupt == 32)
+        {
+            timer_handle_interrupt();
+        }
+        else if (interrupt == 33)
         {
             keyboard_handle_interrupt();
+        }
+        else
+        {
+            // Unhandled hardware IRQ: still acknowledge it to prevent locking the PIC.
         }
 
         // Always acknowledge hardware interrupts to the PIC [10, 11]

@@ -7,6 +7,8 @@
 
 #include <kernel/tty.h>
 #include <drivers/serial.h>
+#include <drivers/timer.h>
+#include <drivers/keyboard.h>
 #include <kernel/log.h>
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
@@ -32,7 +34,7 @@
 extern void kernel_physical_start(void);
 extern void kernel_physical_end(void);
 
-void test_heap(void)
+static void boot_test_heap(void)
 {
 	printk(LOG_INFO, "--- fishboneOS Kernel Heap Test ---");
 
@@ -70,6 +72,92 @@ void test_heap(void)
 	printk(LOG_INFO, "-----------------------------------");
 }
 
+static void boot_test_pmm(void)
+{
+	// 1. Request a free 4 KiB frame from the PMM
+	void *phys_addr = pmm_alloc_frame();
+
+	// 2. Error Checking: Ensure we haven't run out of memory [3]
+	if (phys_addr == NULL)
+	{
+		printk(LOG_ERROR, "PMM: Out of physical memory!");
+		return;
+	}
+
+	printk(LOG_INFO, "PMM: Allocated frame at physical address 0x%08x", (uint32_t)phys_addr);
+
+	// 3. Treat the physical address as a character pointer.
+	// Because paging is disabled, we can write to this address directly [1, 6].
+	char *data_ptr = (char *)phys_addr;
+
+	// 4. Write "fishboneOS" into the allocated physical memory.
+	const char *test_msg = "fishboneOS";
+	int i = 0;
+	while (test_msg[i] != '\0')
+	{
+		data_ptr[i] = test_msg[i];
+		i++;
+	}
+	data_ptr[i] = '\0'; // Add null terminator [7].
+
+	// 5. Read the data back from memory to verify the "Physical Reality".
+	// We log the result to Bochs serial port for confirmation.
+	printk(LOG_INFO, "PMM Test: Wrote to phys 0x%08x. Read back: '%s'",
+		   (uint32_t)phys_addr, data_ptr);
+}
+
+static void boot_run_tests(void)
+{
+	boot_test_heap();
+	boot_test_pmm();
+	boot_test_heap();
+}
+
+static volatile uint32_t kernel_ticks = 0;
+static volatile uint32_t kernel_last_service_tick = 0;
+
+static void kernel_initialize_runtime(void)
+{
+	kernel_ticks = 0;
+	kernel_last_service_tick = 0;
+}
+
+static void kernel_idle(void)
+{
+	asm volatile("hlt");
+}
+
+static void kernel_dispatch_events(void)
+{
+	while (keyboard_has_event())
+	{
+		char c = keyboard_get_event();
+		terminal_putchar(c);
+	}
+}
+
+static void kernel_dispatch_periodic_services(void)
+{
+	if (kernel_ticks != kernel_last_service_tick)
+	{
+		kernel_last_service_tick = kernel_ticks;
+		/* Placeholder for timer-driven services such as scheduling or housekeeping. */
+	}
+}
+
+static void kernel_main_loop(void)
+{
+	kernel_initialize_runtime();
+	printk(LOG_INFO, "Kernel runtime: entering main loop");
+
+	while (1)
+	{
+		kernel_dispatch_events();
+		kernel_dispatch_periodic_services();
+		kernel_idle();
+	}
+}
+
 void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 {
 	gdt_init();
@@ -80,7 +168,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	pic_disable_all_irq();
 
-	/* Enable the keyboard interrupt */
+	/* Enable the timer interrupt and keyboard interrupt */
+	pic_enable_irq(0);
 	pic_enable_irq(1);
 
 	/* Initialize the serial driver first */
@@ -95,7 +184,13 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	paging_init();
 	heap_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
-	test_heap();
+
+#ifdef DEBUG
+	boot_run_tests();
+#endif
+
+	/* Initialize periodic timer before enabling interrupts */
+	timer_init(100);
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
@@ -103,47 +198,12 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	uint32_t k_start = (uint32_t)&kernel_physical_start;
 	uint32_t k_end = (uint32_t)&kernel_physical_end;
 	printk(LOG_INFO, "Kernel image physical range: 0x%08x - 0x%08x", k_start, k_end);
+
+#ifdef DEBUG
 	log_system_info();
+#endif
 
 	multiboot_info(multiboot_magic, mbinfo);
 
-	// 1. Request a free 4 KiB frame from the PMM
-	void *phys_addr = pmm_alloc_frame();
-
-	// 2. Error Checking: Ensure we haven't run out of memory [3]
-	if (phys_addr == NULL)
-	{
-		printk(LOG_ERROR, "PMM: Out of physical memory!");
-	}
-	else
-	{
-		printk(LOG_INFO, "PMM: Allocated frame at physical address 0x%08x", (uint32_t)phys_addr);
-
-		// 3. Treat the physical address as a character pointer.
-		// Because paging is disabled, we can write to this address directly [1, 6].
-		char *data_ptr = (char *)phys_addr;
-
-		// 4. Write "fishboneOS" into the allocated physical memory.
-		const char *test_msg = "fishboneOS";
-		int i = 0;
-		while (test_msg[i] != '\0')
-		{
-			data_ptr[i] = test_msg[i];
-			i++;
-		}
-		data_ptr[i] = '\0'; // Add null terminator [7].
-
-		// 5. Read the data back from memory to verify the "Physical Reality".
-		// We log the result to Bochs serial port for confirmation.
-		printk(LOG_INFO, "PMM Test: Wrote to phys 0x%08x. Read back: '%s'",
-			   (uint32_t)phys_addr, data_ptr);
-	}
-
-	test_heap();
-
-	/* Keep the kernel running to process interrupts */
-	while (1)
-	{
-		asm volatile("hlt"); /* Halt CPU until next interrupt */
-	}
+	kernel_main_loop();
 }
