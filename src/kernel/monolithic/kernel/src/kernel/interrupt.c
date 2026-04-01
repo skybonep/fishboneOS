@@ -1,4 +1,7 @@
+#include <stddef.h>
+#include <stddef.h>
 #include <kernel/pic.h>
+#include <kernel/task.h>
 #include <drivers/timer.h>
 #include <drivers/keyboard.h>
 #include <kernel/log.h>
@@ -7,7 +10,7 @@
 
 struct cpu_state
 {
-    unsigned int edi, esi, ebp, esp, ebx, edx, ecx, eax;
+    unsigned int eax, ecx, edx, ebx, esp, ebp, esi, edi;
 } __attribute__((packed));
 
 struct stack_state
@@ -66,31 +69,61 @@ static void dump_registers(struct cpu_state cpu, struct stack_state stack, unsig
         ;
 }
 
-void interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct stack_state stack)
+void *interrupt_handler(void *cpu_state_ptr)
 {
+    if (cpu_state_ptr == NULL)
+    {
+        return NULL;
+    }
+
+    uint32_t *saved_regs = (uint32_t *)cpu_state_ptr;
+    struct cpu_state cpu;
+    cpu.eax = saved_regs[7];
+    cpu.ecx = saved_regs[6];
+    cpu.edx = saved_regs[5];
+    cpu.ebx = saved_regs[4];
+    cpu.esp = saved_regs[3];
+    cpu.ebp = saved_regs[2];
+    cpu.esi = saved_regs[1];
+    cpu.edi = saved_regs[0];
+
+    unsigned int interrupt = saved_regs[8];
+    struct stack_state stack;
+    stack.error_code = saved_regs[9];
+    stack.eip = saved_regs[10];
+    stack.cs = saved_regs[11];
+    stack.eflags = saved_regs[12];
+
     // 1. Handle CPU Exceptions (0-31)
     if (interrupt < 32)
     {
         // This is a fault/exception. Dump registers and halt.
         dump_registers(cpu, stack, interrupt);
+        return NULL;
     }
+
+    // Debug: confirm the interrupt number and stack frame are correct.
+    printk(LOG_DEBUG, "INTERRUPT: number=%u error=%u eip=0x%08x cs=0x%08x eflags=0x%08x",
+           interrupt, stack.error_code, stack.eip, stack.cs, stack.eflags);
+
     // 2. Handle Hardware Interrupts (32+)
+    void *next_context = NULL;
+
+    if (interrupt == 32)
+    {
+        timer_handle_interrupt();
+        next_context = task_tick();
+    }
+    else if (interrupt == 33)
+    {
+        keyboard_handle_interrupt();
+    }
     else
     {
-        if (interrupt == 32)
-        {
-            timer_handle_interrupt();
-        }
-        else if (interrupt == 33)
-        {
-            keyboard_handle_interrupt();
-        }
-        else
-        {
-            // Unhandled hardware IRQ: still acknowledge it to prevent locking the PIC.
-        }
-
-        // Always acknowledge hardware interrupts to the PIC [10, 11]
-        pic_sendEOI(interrupt);
+        // Unhandled hardware IRQ: still acknowledge it to prevent locking the PIC.
     }
+
+    // Always acknowledge hardware interrupts to the PIC [10, 11]
+    pic_sendEOI(interrupt);
+    return next_context;
 }

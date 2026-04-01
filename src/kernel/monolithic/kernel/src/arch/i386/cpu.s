@@ -80,7 +80,7 @@ load_idt:
 .global interrupt_handler_\num
 interrupt_handler_\num:
     push $0                     # Push dummy error code
-    push $\num                  # Push the interrupt number
+    push $\num                # Push the interrupt number
     jmp common_interrupt_handler # Jump to the shared logic
 .endm
 
@@ -94,10 +94,39 @@ no_error_code_interrupt_handler 33
 common_interrupt_handler:
     pusha                       # Save eax, ebx, ecx, edx, esp, ebp, esi, edi
 
-    # Call the C dispatcher. The struct cpu_state will be mapped 
-    # to the registers we just pushed.
-    call interrupt_handler
+    mov %esp, %ecx              # Capture pointer to saved EDI..EAX register frame
+    push %ecx                   # Pass pointer to saved cpu state for task preemption
+    call task_save_current_context
+    add $4, %esp
 
-    popa                        # Restore the registers
+    mov %esp, %ecx              # Recompute pointer after the call returns
+    push %ecx                   # Pass raw saved cpu state pointer to interrupt_handler
+    call interrupt_handler
+    add $4, %esp
+
+    test %eax, %eax             # eax == 0 means no task switch
+    jz .restore_current_task
+
+    jmp task_resume             # Resume the next task using its saved context
+
+.restore_current_task:
+    popa                        # Restore current task registers
     add $8, %esp                # Clean up the interrupt number and dummy error code
     iret                        # Return to the interrupted code
+
+.global task_resume
+.type task_resume, @function
+task_resume:
+    mov %eax, %ebx              # EBX = pointer to task_context_t
+    mov 0(%ebx), %edi
+    mov 4(%ebx), %esi
+    mov 8(%ebx), %ebp
+    mov 12(%ebx), %esp          # Switch to the target task stack
+    push 40(%ebx)
+    push 36(%ebx)
+    push 32(%ebx)
+    mov 16(%ebx), %ebx
+    mov 20(%ebx), %edx
+    mov 24(%ebx), %ecx
+    mov 28(%ebx), %eax
+    iret

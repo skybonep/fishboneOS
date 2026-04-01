@@ -56,10 +56,11 @@ void paging_init()
     uint32_t heap_pde_idx = KERNEL_HEAP_START >> 22;
     pdt[heap_pde_idx] = 0; // Leave unmapped until the heap is actually used.
 
-    // 6. Map the initial kernel stack pages inside the same higher-half PT.
+    // 6. Map the kernel stack region into the same higher-half PT.
     uint32_t stack_pde_idx = KERNEL_STACK_REGION_START >> 22;
     uint32_t stack_pt_index = (KERNEL_STACK_REGION_START - KERNEL_VIRT_BASE) / PAGE_SIZE;
-    for (uint32_t i = 0; i < (KERNEL_STACK_SIZE / PAGE_SIZE); i++)
+    uint32_t stack_region_pages = (KERNEL_STACK_REGION_END - KERNEL_STACK_REGION_START + 1) / PAGE_SIZE;
+    for (uint32_t i = 0; i < stack_region_pages; i++)
     {
         void *stack_frame = pmm_alloc_frame();
         pt_kernel[stack_pt_index + i] = (uint32_t)stack_frame | PAGE_PRESENT | PAGE_WRITE;
