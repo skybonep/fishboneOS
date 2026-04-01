@@ -94,10 +94,18 @@ no_error_code_interrupt_handler 33
 common_interrupt_handler:
     pusha                       # Save eax, ebx, ecx, edx, esp, ebp, esi, edi
 
-    # Call the C dispatcher. The struct cpu_state will be mapped 
+    # Call the C dispatcher. The struct cpu_state will be mapped
     # to the registers we just pushed.
     call interrupt_handler
 
-    popa                        # Restore the registers
+    test %eax, %eax             # eax == 0 means no task switch
+    jz .restore_current_task
+
+    mov %eax, %esp              # Switch stack to the next task context
+    popa                        # Restore next task general registers
+    iret                        # Return to the next task
+
+.restore_current_task:
+    popa                        # Restore current task registers
     add $8, %esp                # Clean up the interrupt number and dummy error code
     iret                        # Return to the interrupted code

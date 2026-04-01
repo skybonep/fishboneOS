@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <kernel/pic.h>
 #include <drivers/timer.h>
 #include <drivers/keyboard.h>
@@ -66,13 +67,14 @@ static void dump_registers(struct cpu_state cpu, struct stack_state stack, unsig
         ;
 }
 
-void interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct stack_state stack)
+void *interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct stack_state stack)
 {
     // 1. Handle CPU Exceptions (0-31)
     if (interrupt < 32)
     {
         // This is a fault/exception. Dump registers and halt.
         dump_registers(cpu, stack, interrupt);
+        return NULL;
     }
     // 2. Handle Hardware Interrupts (32+)
     else
@@ -93,4 +95,6 @@ void interrupt_handler(struct cpu_state cpu, unsigned int interrupt, struct stac
         // Always acknowledge hardware interrupts to the PIC [10, 11]
         pic_sendEOI(interrupt);
     }
+
+    return NULL;
 }
