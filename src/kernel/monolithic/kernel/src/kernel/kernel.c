@@ -128,6 +128,22 @@ static void kernel_idle(void)
 	asm volatile("hlt");
 }
 
+static void kernel_worker(void)
+{
+	while (1)
+	{
+		task_t *self = task_get_current();
+		if (self != NULL)
+		{
+			printk(LOG_INFO, "Kernel worker task self=%p pid=%u state=%u", self, self->pid, self->state);
+		}
+
+		for (volatile uint32_t i = 0; i < 1000000; ++i)
+		{
+		}
+	}
+}
+
 static void kernel_dispatch_events(void)
 {
 	while (keyboard_has_event())
@@ -186,6 +202,22 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	heap_init();
 	task_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
+
+	/* Create initial kernel tasks before starting timer-driven scheduling. */
+	task_t *idle_task = task_create(kernel_idle);
+	if (idle_task != NULL)
+	{
+		task_set_current(idle_task);
+		/* Switch the CPU to the idle task's own higher-half stack. */
+		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
+	}
+
+	task_t *worker_task_1 = task_create(kernel_worker);
+	task_t *worker_task_2 = task_create(kernel_worker);
+	if (worker_task_2 == NULL)
+	{
+		printk(LOG_ERROR, "Failed to create worker task 2");
+	}
 
 #ifdef DEBUG
 	boot_run_tests();

@@ -17,14 +17,14 @@ typedef enum task_state
 
 typedef struct task_context
 {
-    uint32_t eax;
-    uint32_t ecx;
-    uint32_t edx;
-    uint32_t ebx;
-    uint32_t esp;
-    uint32_t ebp;
-    uint32_t esi;
     uint32_t edi;
+    uint32_t esi;
+    uint32_t ebp;
+    uint32_t esp;
+    uint32_t ebx;
+    uint32_t edx;
+    uint32_t ecx;
+    uint32_t eax;
     uint32_t eip;
     uint32_t cs;
     uint32_t eflags;
@@ -41,7 +41,7 @@ typedef struct task
     uint32_t *stack_top;
     uint32_t stack_size;
 
-    task_context_t *context;
+    task_context_t context;
 
     struct task *next;
     struct task *prev;
@@ -53,5 +53,6 @@ task_context_t *task_schedule(void);
 task_context_t *task_tick(void);
 task_t *task_get_current(void);
 void task_set_current(task_t *task);
+void task_save_current_context(void *cpu_state_ptr);
 
 #endif /* KERNEL_TASK_H */
