@@ -8,6 +8,7 @@
 #include <kernel/tty.h>
 #include <drivers/serial.h>
 #include <drivers/timer.h>
+#include <drivers/keyboard.h>
 #include <kernel/log.h>
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
@@ -114,13 +115,11 @@ static void boot_run_tests(void)
 
 static volatile uint32_t kernel_ticks = 0;
 static volatile uint32_t kernel_last_service_tick = 0;
-static volatile bool kernel_event_pending = false;
 
 static void kernel_initialize_runtime(void)
 {
 	kernel_ticks = 0;
 	kernel_last_service_tick = 0;
-	kernel_event_pending = false;
 }
 
 static void kernel_idle(void)
@@ -130,10 +129,10 @@ static void kernel_idle(void)
 
 static void kernel_dispatch_events(void)
 {
-	if (kernel_event_pending)
+	while (keyboard_has_event())
 	{
-		/* Placeholder for event queue processing. */
-		kernel_event_pending = false;
+		char c = keyboard_get_event();
+		terminal_putchar(c);
 	}
 }
 
@@ -169,7 +168,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	pic_disable_all_irq();
 
-	/* Enable the keyboard interrupt */
+	/* Enable the timer interrupt and keyboard interrupt */
+	pic_enable_irq(0);
 	pic_enable_irq(1);
 
 	/* Initialize the serial driver first */
@@ -198,7 +198,10 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	uint32_t k_start = (uint32_t)&kernel_physical_start;
 	uint32_t k_end = (uint32_t)&kernel_physical_end;
 	printk(LOG_INFO, "Kernel image physical range: 0x%08x - 0x%08x", k_start, k_end);
+
+#ifdef DEBUG
 	log_system_info();
+#endif
 
 	multiboot_info(multiboot_magic, mbinfo);
 

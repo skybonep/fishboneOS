@@ -1,8 +1,9 @@
+#include <stdbool.h>
+#include <drivers/keyboard.h>
 #include <kernel/io.h>
-#include <kernel/pic.h>
-#include <kernel/log.h>
 
 #define KBD_DATA_PORT 0x60
+#define KBD_EVENT_QUEUE_SIZE 32
 
 /*
  * US QWERTY Scan Code Set 1 Mapping
@@ -14,6 +15,11 @@ unsigned char kbd_us[] = {
     '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
     0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
     'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' '};
+
+static char keyboard_queue[KBD_EVENT_QUEUE_SIZE];
+static unsigned int keyboard_head = 0;
+static unsigned int keyboard_tail = 0;
+static unsigned int keyboard_count = 0;
 
 char translate_scan_code(unsigned char scan_code)
 {
@@ -36,52 +42,47 @@ char translate_scan_code(unsigned char scan_code)
     return 0;
 }
 
-void itoa_temp(unsigned int num, char *str, int base)
+bool keyboard_has_event(void)
 {
-    int i = 0;
-    do
+    return keyboard_count > 0;
+}
+
+char keyboard_get_event(void)
+{
+    if (keyboard_count == 0)
     {
-        str[i++] = "0123456789"[num % base];
-        num /= base;
-    } while (num);
-    str[i] = '\0';
-    // Reverse the string
-    for (int j = 0; j < i / 2; j++)
-    {
-        char tmp = str[j];
-        str[j] = str[i - 1 - j];
-        str[i - 1 - j] = tmp;
+        return 0;
     }
+
+    char c = keyboard_queue[keyboard_tail];
+    keyboard_tail = (keyboard_tail + 1) % KBD_EVENT_QUEUE_SIZE;
+    keyboard_count--;
+    return c;
+}
+
+static void keyboard_enqueue_event(char c)
+{
+    if (keyboard_count >= KBD_EVENT_QUEUE_SIZE)
+    {
+        return;
+    }
+
+    keyboard_queue[keyboard_head] = c;
+    keyboard_head = (keyboard_head + 1) % KBD_EVENT_QUEUE_SIZE;
+    keyboard_count++;
 }
 
 /**
  * keyboard_handle_interrupt:
- * Reads the scan code, translates it, and prints the character.
+ * Reads the scan code, translates it, and stores the character in a small queue.
  */
 void keyboard_handle_interrupt()
 {
-    // 1. Read the scan code from the hardware port
     unsigned char scan_code = inb(KBD_DATA_PORT);
-
-    char buffer[16];
-    itoa_temp(scan_code, buffer, 16);
-
-    // 2. Translate scan code to ASCII
-    // (Note: The keyboard sends scan codes, not characters)
     char c = translate_scan_code(scan_code);
 
-    // 3. Print the character if it's a valid keypress
     if (c != 0)
     {
-        for (int i = 0; i < 5; i++)
-        {
-            if (buffer[i] == '\0')
-            {
-                buffer[i] = ' ';
-            }
-        }
-        buffer[4] = c;
-        buffer[5] = '\0';
-        printk(LOG_DEBUG, buffer); // Log the scan code in hex
+        keyboard_enqueue_event(c);
     }
 }

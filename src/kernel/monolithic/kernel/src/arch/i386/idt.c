@@ -12,7 +12,8 @@ void idt_set_gate(unsigned char num, unsigned int base, unsigned short sel, unsi
     idt[num].type_attr = flags;
 }
 
-// This assembly wrapper is created in your 'cpu.s' using macros
+// These assembly wrappers are created in your 'cpu.s' using macros
+extern void interrupt_handler_32();
 extern void interrupt_handler_33();
 
 void idt_init()
@@ -29,11 +30,14 @@ void idt_init()
     // After setting up assembly wrappers, you will register them here:
     // idt_set_gate(0, (unsigned)interrupt_handler_0, 0x08, 0x8E);
 
+    /* --- Register the Timer Handler --- */
+    // Index: 32 (0x20) - Timer IRQ 0 remapped
+    // Base: Address of the assembly wrapper 'interrupt_handler_32'
+    idt_set_gate(32, (unsigned int)interrupt_handler_32, 0x08, 0x8E);
+
     /* --- Register the Keyboard Handler --- */
     // Index: 33 (0x21) - Keyboard IRQ 1 remapped
     // Base: Address of the assembly wrapper 'interrupt_handler_33'
-    // Selector: 0x08 - The Kernel Code Segment in your GDT
-    // Flags: 0x8E - Present (1), DPL (00), 32-bit (1), Type (110)
     idt_set_gate(33, (unsigned int)interrupt_handler_33, 0x08, 0x8E);
 
     extern void load_idt(unsigned int);
