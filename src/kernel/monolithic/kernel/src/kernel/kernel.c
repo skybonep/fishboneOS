@@ -19,6 +19,7 @@
 #include <kernel/paging.h>
 #include <kernel/malloc.h>
 #include <kernel/info.h>
+#include <kernel/task.h>
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
@@ -183,6 +184,7 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	paging_init();
 	heap_init();
+	task_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
 #ifdef DEBUG
