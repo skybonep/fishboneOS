@@ -102,10 +102,6 @@ void *interrupt_handler(void *cpu_state_ptr)
         return NULL;
     }
 
-    // Debug: confirm the interrupt number and stack frame are correct.
-    printk(LOG_DEBUG, "INTERRUPT: number=%u error=%u eip=0x%08x cs=0x%08x eflags=0x%08x",
-           interrupt, stack.error_code, stack.eip, stack.cs, stack.eflags);
-
     // 2. Handle Hardware Interrupts (32+)
     void *next_context = NULL;
 

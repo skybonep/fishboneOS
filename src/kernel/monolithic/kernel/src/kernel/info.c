@@ -120,10 +120,6 @@ void log_system_info(void)
  */
 void multiboot_info(unsigned int multiboot_magic, multiboot_info_t *mbinfo)
 {
-    printk(LOG_INFO, "");
-    printk(LOG_INFO, "--- Multiboot Info ---");
-    printk(LOG_INFO, "Multiboot magic number: 0x%08x", multiboot_magic);
-
     if (multiboot_magic != MULTIBOOT_BOOTLOADER_MAGIC)
     {
         printk(LOG_WARNING, "Invalid magic number: 0x%08x. Expected 0x2BADB002.", multiboot_magic);
@@ -131,6 +127,14 @@ void multiboot_info(unsigned int multiboot_magic, multiboot_info_t *mbinfo)
         return;
     }
 
+#ifndef DEBUG
+    (void)mbinfo;
+#endif
+
+#ifdef DEBUG
+    printk(LOG_INFO, "");
+    printk(LOG_INFO, "--- Multiboot Info ---");
+    printk(LOG_INFO, "Multiboot magic number: 0x%08x", multiboot_magic);
     printk(LOG_INFO, "Flags: 0x%08x", mbinfo->flags);
 
     // Basic Memory Information (Flag bit 0)
@@ -188,4 +192,5 @@ void multiboot_info(unsigned int multiboot_magic, multiboot_info_t *mbinfo)
     }
 
     printk(LOG_INFO, "------------------------------");
+#endif
 }

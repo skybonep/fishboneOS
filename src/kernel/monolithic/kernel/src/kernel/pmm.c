@@ -38,6 +38,7 @@ static void pmm_record_region(uint32_t start_frame, uint32_t end_frame, uint32_t
     };
 }
 
+#ifdef DEBUG
 static const char *pmm_region_type_to_string(uint32_t type)
 {
     switch (type)
@@ -58,6 +59,7 @@ static const char *pmm_region_type_to_string(uint32_t type)
         return "Unknown";
     }
 }
+#endif
 
 static void pmm_mark_range_free(uint32_t start_frame, uint32_t end_frame);
 static void pmm_mark_range_used(uint32_t start_frame, uint32_t end_frame);
@@ -176,6 +178,7 @@ void pmm_init(multiboot_info_t *mbinfo)
             free_frames++;
     }
 
+#ifdef DEBUG
     printk(LOG_INFO, "PMM initialized with %d total frames, %d free, %d regions.",
            total_frames, free_frames, pmm_region_count);
     for (uint32_t i = 0; i < pmm_region_count; i++)
@@ -185,6 +188,7 @@ void pmm_init(multiboot_info_t *mbinfo)
         printk(LOG_INFO, "Region %u: frames %u-%u type=%u (%s)",
                i, region->start_frame, region->end_frame, region->type, type_name);
     }
+#endif
 }
 
 void *pmm_alloc_frame()

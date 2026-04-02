@@ -88,9 +88,6 @@ static task_context_t *task_create_context(task_t *task, void (*entry_point)(voi
     context->cs = 0x08;
     context->eflags = 0x202;
 
-    printk(LOG_DEBUG, "SCHED DEBUG: create pid=%u stack_base=0x%08x stack_top=0x%08x context=%p esp=0x%08x",
-           task->pid, (uint32_t)task->stack_base, (uint32_t)task->stack_top,
-           (void *)context, context->esp);
     return context;
 }
 
@@ -104,18 +101,6 @@ void task_save_current_context(void *cpu_state_ptr)
     task_context_t *context = &current_task->context;
     uint32_t *saved_regs = (uint32_t *)cpu_state_ptr;
     uint32_t saved_esp = saved_regs[3];
-    uint32_t saved_intno = saved_regs[8];
-    uint32_t saved_err = saved_regs[9];
-    uint32_t saved_eip = saved_regs[10];
-    uint32_t saved_cs = saved_regs[11];
-    uint32_t saved_eflags = saved_regs[12];
-
-    printk(LOG_DEBUG, "SCHED DEBUG: pid=%u context=%p stack_base=0x%08x stack_top=0x%08x saved_regs[0]=0x%08x saved_regs[1]=0x%08x saved_regs[2]=0x%08x saved_regs[3]=0x%08x saved_regs[4]=0x%08x saved_regs[5]=0x%08x saved_regs[6]=0x%08x saved_regs[7]=0x%08x saved_regs[8]=0x%08x saved_regs[9]=0x%08x saved_regs[10]=0x%08x saved_regs[11]=0x%08x saved_regs[12]=0x%08x int=%u err=%u raw_eip=0x%08x raw_cs=0x%08x raw_eflags=0x%08x",
-           current_task->pid, (void *)context,
-           (uint32_t)current_task->stack_base, (uint32_t)current_task->stack_top,
-           saved_regs[0], saved_regs[1], saved_regs[2], saved_regs[3], saved_regs[4], saved_regs[5], saved_regs[6], saved_regs[7],
-           saved_regs[8], saved_regs[9], saved_regs[10], saved_regs[11], saved_regs[12],
-           saved_intno, saved_err, saved_eip, saved_cs, saved_eflags);
 
     context->edi = saved_regs[0];
     context->esi = saved_regs[1];
@@ -130,14 +115,6 @@ void task_save_current_context(void *cpu_state_ptr)
     context->eip = return_frame[0];
     context->cs = return_frame[1];
     context->eflags = return_frame[2];
-
-    printk(LOG_DEBUG, "SCHED DEBUG POST: pid=%u ctx=%p edi=0x%08x esi=0x%08x ebp=0x%08x esp=0x%08x ebx=0x%08x edx=0x%08x ecx=0x%08x eax=0x%08x eip=0x%08x cs=0x%08x eflags=0x%08x",
-           current_task->pid, (void *)context,
-           context->edi, context->esi, context->ebp,
-           context->esp, context->ebx, context->edx,
-           context->ecx, context->eax, context->eip,
-           context->cs, context->eflags);
-    printk(LOG_DEBUG, "SCHED: saved context for pid=%u eip=0x%08x esp=0x%08x", current_task->pid, context->eip, context->esp);
 }
 
 static uint32_t task_stack_slot_count(void)
@@ -285,7 +262,9 @@ task_context_t *task_tick(void)
     current_task->ticks++;
     if (current_task->ticks >= current_task->quantum)
     {
+#ifdef DEBUG
         task_t *old_task = current_task;
+#endif
         current_task->state = TASK_READY;
         task_enqueue(current_task);
         task_t *next = task_select_next();
@@ -294,7 +273,9 @@ task_context_t *task_tick(void)
             return NULL;
         }
 
-        printk(LOG_INFO, "SCHED: switch pid=%u -> pid=%u", old_task->pid, next->pid);
+#ifdef DEBUG
+        printk(LOG_DEBUG, "SCHED: switch pid=%u -> pid=%u", old_task->pid, next->pid);
+#endif
         return &next->context;
     }
 

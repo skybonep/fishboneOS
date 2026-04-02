@@ -35,6 +35,7 @@
 extern void kernel_physical_start(void);
 extern void kernel_physical_end(void);
 
+#ifdef DEBUG
 static void boot_test_heap(void)
 {
 	printk(LOG_INFO, "--- fishboneOS Kernel Heap Test ---");
@@ -113,6 +114,7 @@ static void boot_run_tests(void)
 	boot_test_pmm();
 	boot_test_heap();
 }
+#endif
 
 static volatile uint32_t kernel_ticks = 0;
 static volatile uint32_t kernel_last_service_tick = 0;
@@ -132,12 +134,6 @@ static void kernel_worker(void)
 {
 	while (1)
 	{
-		task_t *self = task_get_current();
-		if (self != NULL)
-		{
-			printk(LOG_INFO, "Kernel worker task self=%p pid=%u state=%u", self, self->pid, self->state);
-		}
-
 		for (volatile uint32_t i = 0; i < 1000000; ++i)
 		{
 		}
@@ -212,7 +208,7 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
 	}
 
-	task_t *worker_task_1 = task_create(kernel_worker);
+	task_create(kernel_worker);
 	task_t *worker_task_2 = task_create(kernel_worker);
 	if (worker_task_2 == NULL)
 	{
