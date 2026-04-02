@@ -5,6 +5,7 @@
 
 #include <kernel/memory_map.h>
 #include <kernel/gdt.h>
+#include <drivers/timer.h>
 #include <kernel/task.h>
 #include <kernel/log.h>
 
@@ -148,6 +149,22 @@ static uint32_t task_stack_slot_count(void)
     return slot_count > TASK_MAX ? TASK_MAX : slot_count;
 }
 
+static void task_wake_waiting_tasks(void)
+{
+    uint32_t now = timer_get_ticks();
+
+    for (uint32_t index = 0; index < TASK_MAX; ++index)
+    {
+        task_t *task = &task_table[index];
+        if (task->state == TASK_WAITING && task->wake_tick != 0 && task->wake_tick <= now)
+        {
+            task->state = TASK_READY;
+            task->wake_tick = 0;
+            task_enqueue(task);
+        }
+    }
+}
+
 static bool task_allocate_stack(task_t *task)
 {
     uint32_t slot_count = task_stack_slot_count();
@@ -205,6 +222,8 @@ static task_t *task_alloc(void)
             task->stack_size = 0;
             task->user_stack_top = NULL;
             task->user_stack_size = 0;
+            task->wake_tick = 0;
+            task->exit_status = 0;
             memset(&task->context, 0, sizeof(task_context_t));
             task->next = NULL;
             task->prev = NULL;
@@ -237,6 +256,8 @@ void task_init(void)
         task_table[index].stack_size = 0;
         task_table[index].user_stack_top = NULL;
         task_table[index].user_stack_size = 0;
+        task_table[index].wake_tick = 0;
+        task_table[index].exit_status = 0;
         memset(&task_table[index].context, 0, sizeof(task_context_t));
         task_table[index].next = NULL;
         task_table[index].prev = NULL;
@@ -309,6 +330,8 @@ task_context_t *task_schedule(void)
 
 task_context_t *task_tick(void)
 {
+    task_wake_waiting_tasks();
+
     if (current_task == NULL || current_task->state != TASK_RUNNING)
     {
         return NULL;

@@ -51,6 +51,8 @@ typedef struct task
 
     uint32_t *user_stack_top;
     uint32_t user_stack_size;
+    uint32_t wake_tick;
+    int32_t exit_status;
 
     task_context_t context;
 
