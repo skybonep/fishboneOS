@@ -4,26 +4,27 @@ struct gdt_entry gdt[12]; // 3 is enough for basic code/data, but we can reserve
 struct gdt_ptr gp;
 
 /* Internal helper to construct entries using the bit-field structures */
-void gdt_set_gate(int num, unsigned int base, unsigned int limit, 
-                  struct gdt_access access, struct gdt_gran gran) 
+void gdt_set_gate(int num, unsigned int base, unsigned int limit,
+                  struct gdt_access access, struct gdt_gran gran)
 {
     /* Split the 32-bit base address */
-    gdt[num].base_low    = (base & 0xFFFF);
+    gdt[num].base_low = (base & 0xFFFF);
     gdt[num].base_middle = (base >> 16) & 0xFF;
-    gdt[num].base_high   = (base >> 24) & 0xFF;
+    gdt[num].base_high = (base >> 24) & 0xFF;
 
     /* Set the limit and granularity */
-    gdt[num].limit_low   = (limit & 0xFFFF);
-    
+    gdt[num].limit_low = (limit & 0xFFFF);
+
     /* Map the bit-field structs into the entry bytes */
-    gran.limit_high      = (limit >> 16) & 0x0F;
-    gdt[num].granularity = *(unsigned char*)&gran;
-    gdt[num].access      = *(unsigned char*)&access;
+    gran.limit_high = (limit >> 16) & 0x0F;
+    gdt[num].granularity = *(unsigned char *)&gran;
+    gdt[num].access = *(unsigned char *)&access;
 }
 
-void gdt_init() {
+void gdt_init()
+{
     /* 1. Set the GDT Pointer */
-    gp.size = (sizeof(struct gdt_entry) * 3) - 1;
+    gp.size = (sizeof(struct gdt_entry) * 5) - 1;
     gp.address = (unsigned int)&gdt;
 
     /* 2. Index 0: Null Descriptor (Hardware requirement) */
@@ -37,8 +38,7 @@ void gdt_init() {
         .dpl = 0,
         .s_type = 1,
         .executable = 1,
-        .read_write = 1
-    };
+        .read_write = 1};
     struct gdt_gran kcode_gran = {
         .granularity = 1, .size = 1 // 4KB blocks and 32-bit mode
     };
@@ -50,14 +50,34 @@ void gdt_init() {
         .dpl = 0,
         .s_type = 1,
         .executable = 0,
-        .read_write = 1
-    };
+        .read_write = 1};
     struct gdt_gran kdata_gran = {
-        .granularity = 1, .size = 1
-    };
+        .granularity = 1, .size = 1};
     gdt_set_gate(2, 0, 0xFFFFFFFF, kdata_access, kdata_gran);
 
-    /* 5. Load the GDT and flush segment registers */
+    /* 5. Index 3: User Code Segment (Base 0, Limit 4GB, PL3, RX) */
+    struct gdt_access ucode_access = {
+        .present = 1,
+        .dpl = 3,
+        .s_type = 1,
+        .executable = 1,
+        .read_write = 1};
+    struct gdt_gran ucode_gran = {
+        .granularity = 1, .size = 1};
+    gdt_set_gate(3, 0, 0xFFFFFFFF, ucode_access, ucode_gran);
+
+    /* 6. Index 4: User Data Segment (Base 0, Limit 4GB, PL3, RW) */
+    struct gdt_access udata_access = {
+        .present = 1,
+        .dpl = 3,
+        .s_type = 1,
+        .executable = 0,
+        .read_write = 1};
+    struct gdt_gran udata_gran = {
+        .granularity = 1, .size = 1};
+    gdt_set_gate(4, 0, 0xFFFFFFFF, udata_access, udata_gran);
+
+    /* 7. Load the GDT and flush segment registers */
     extern void load_gdt(unsigned int);
     load_gdt((unsigned int)&gp);
 }
