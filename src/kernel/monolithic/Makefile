@@ -3,6 +3,8 @@ KERNEL_DIR := kernel/src/kernel/kernel
 ARCH_DIR := kernel/src/kernel/arch/i386
 LIBC_DIR := libc
 
+DEBUG ?= 0
+
 KERNEL_INC_DIR := kernel/include
 LIBC_INC_DIR := libc/include
 
@@ -11,6 +13,10 @@ AS := $(CROSS_BIN)/i686-elf-as
 GRUB := grub-mkrescue
 
 CPPFLAGS := -I$(KERNEL_INC_DIR) -I$(LIBC_INC_DIR) -D__is_libk
+ifneq ($(DEBUG),0)
+CPPFLAGS += -DDEBUG
+endif
+
 CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra $(CPPFLAGS)
 LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
@@ -29,7 +35,13 @@ ISO_STAGING  := $(BUILD_DIR)/iso_staging
 DIST_DIR     := $(BUILD_DIR)/dist
 ISO_IMAGE    := $(DIST_DIR)/monolithic.iso
 
-.PHONY: all clean
+.PHONY: all clean debug release
+
+debug: DEBUG=1
+debug: all
+
+release: DEBUG=0
+release: all
 
 all: $(ISO_IMAGE)
 

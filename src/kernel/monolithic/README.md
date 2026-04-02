@@ -1,6 +1,7 @@
 # Compile
 ```
 make
+make DEBUG=1
 ```
 
 # Execute
