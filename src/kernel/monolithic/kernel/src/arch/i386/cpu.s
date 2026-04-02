@@ -75,12 +75,11 @@ load_idt:
     # Return to the calling C function (idt_init)
     ret
 
-# Macro for interrupts that do not push an error code
 .macro no_error_code_interrupt_handler num
 .global interrupt_handler_\num
 interrupt_handler_\num:
     push $0                     # Push dummy error code
-    push $\num                # Push the interrupt number
+    push \num                  # Push the interrupt number
     jmp common_interrupt_handler # Jump to the shared logic
 .endm
 
@@ -89,6 +88,9 @@ no_error_code_interrupt_handler 32
 
 # Define the specific handler for the keyboard (33)
 no_error_code_interrupt_handler 33
+
+# Define the syscall handler for INT 0x80 (128)
+no_error_code_interrupt_handler 128
 
 # The common handler saves the state and calls C
 common_interrupt_handler:
