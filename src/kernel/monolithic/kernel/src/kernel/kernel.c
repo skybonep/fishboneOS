@@ -21,6 +21,8 @@
 #include <kernel/info.h>
 #include <kernel/task.h>
 
+extern void user_main(void);
+
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
 #warning "You are not using a cross-compiler, you will most certainly run into trouble"
@@ -199,6 +201,10 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	task_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
+	static uint32_t user_stack[1024];
+	static const uint32_t user_stack_size = sizeof(user_stack);
+	uint32_t *user_stack_top = (uint32_t *)((uintptr_t)user_stack + user_stack_size);
+
 	/* Create initial kernel tasks before starting timer-driven scheduling. */
 	task_t *idle_task = task_create(kernel_idle);
 	if (idle_task != NULL)
@@ -210,6 +216,10 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	task_create(kernel_worker);
 	task_t *worker_task_2 = task_create(kernel_worker);
+	if (task_create_user(user_main, user_stack_top, user_stack_size) == NULL)
+	{
+		printk(LOG_ERROR, "Failed to create user task");
+	}
 	if (worker_task_2 == NULL)
 	{
 		printk(LOG_ERROR, "Failed to create worker task 2");
