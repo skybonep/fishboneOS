@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <kernel/memory_map.h>
+#include <kernel/gdt.h>
 #include <kernel/task.h>
 #include <kernel/log.h>
 
@@ -78,15 +79,25 @@ static task_context_t *task_create_context(task_t *task, void (*entry_point)(voi
     context->edi = 0;
     context->esi = 0;
     context->ebp = 0;
-    context->esp = (uint32_t)(uintptr_t)task->stack_top - 32;
     context->ebx = 0;
     context->edx = 0;
     context->ecx = 0;
     context->eax = 0;
-
     context->eip = (uint32_t)(uintptr_t)entry_point;
-    context->cs = 0x08;
     context->eflags = 0x202;
+
+    if (task->type == TASK_TYPE_USER)
+    {
+        context->esp = (uint32_t)(uintptr_t)task->user_stack_top - 32;
+        context->cs = USER_CODE_SEG;
+        context->ss = USER_DATA_SEG;
+    }
+    else
+    {
+        context->esp = (uint32_t)(uintptr_t)task->stack_top - 32;
+        context->cs = KERNEL_CODE_SEG;
+        context->ss = KERNEL_DATA_SEG;
+    }
 
     return context;
 }
@@ -105,7 +116,6 @@ void task_save_current_context(void *cpu_state_ptr)
     context->edi = saved_regs[0];
     context->esi = saved_regs[1];
     context->ebp = saved_regs[2];
-    context->esp = saved_esp + 20; /* resume at the original task stack pointer */
     context->ebx = saved_regs[4];
     context->edx = saved_regs[5];
     context->ecx = saved_regs[6];
@@ -115,6 +125,17 @@ void task_save_current_context(void *cpu_state_ptr)
     context->eip = return_frame[0];
     context->cs = return_frame[1];
     context->eflags = return_frame[2];
+
+    if (current_task->type == TASK_TYPE_USER || context->cs == USER_CODE_SEG)
+    {
+        context->esp = return_frame[3];
+        context->ss = return_frame[4];
+    }
+    else
+    {
+        context->esp = saved_esp + 20; /* resume at the original task stack pointer */
+        context->ss = KERNEL_DATA_SEG;
+    }
 }
 
 static uint32_t task_stack_slot_count(void)
@@ -173,11 +194,14 @@ static task_t *task_alloc(void)
             task_t *task = &task_table[index];
             task->pid = next_pid++;
             task->state = TASK_READY;
+            task->type = TASK_TYPE_KERNEL;
             task->quantum = TASK_QUANTUM_DEFAULT;
             task->ticks = 0;
             task->stack_base = NULL;
             task->stack_top = NULL;
             task->stack_size = 0;
+            task->user_stack_top = NULL;
+            task->user_stack_size = 0;
             memset(&task->context, 0, sizeof(task_context_t));
             task->next = NULL;
             task->prev = NULL;
@@ -202,11 +226,14 @@ void task_init(void)
         task_free_stack(&task_table[index]);
         task_table[index].pid = 0;
         task_table[index].state = TASK_UNUSED;
+        task_table[index].type = TASK_TYPE_KERNEL;
         task_table[index].quantum = 0;
         task_table[index].ticks = 0;
         task_table[index].stack_base = NULL;
         task_table[index].stack_top = NULL;
         task_table[index].stack_size = 0;
+        task_table[index].user_stack_top = NULL;
+        task_table[index].user_stack_size = 0;
         memset(&task_table[index].context, 0, sizeof(task_context_t));
         task_table[index].next = NULL;
         task_table[index].prev = NULL;
@@ -227,6 +254,31 @@ task_t *task_create(void (*entry_point)(void))
         return NULL;
     }
 
+    task->type = TASK_TYPE_KERNEL;
+    task->state = TASK_READY;
+    task->ticks = 0;
+    task->quantum = TASK_QUANTUM_DEFAULT;
+    task_create_context(task, entry_point);
+    task_enqueue(task);
+    return task;
+}
+
+task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size)
+{
+    if (user_stack_top == NULL || user_stack_size == 0)
+    {
+        return NULL;
+    }
+
+    task_t *task = task_alloc();
+    if (task == NULL)
+    {
+        return NULL;
+    }
+
+    task->type = TASK_TYPE_USER;
+    task->user_stack_top = user_stack_top;
+    task->user_stack_size = user_stack_size;
     task->state = TASK_READY;
     task->ticks = 0;
     task->quantum = TASK_QUANTUM_DEFAULT;

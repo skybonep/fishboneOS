@@ -15,6 +15,12 @@ typedef enum task_state
     TASK_ZOMBIE
 } task_state_t;
 
+typedef enum task_type
+{
+    TASK_TYPE_KERNEL = 0,
+    TASK_TYPE_USER
+} task_type_t;
+
 typedef struct task_context
 {
     uint32_t edi;
@@ -27,6 +33,7 @@ typedef struct task_context
     uint32_t eax;
     uint32_t eip;
     uint32_t cs;
+    uint32_t ss;
     uint32_t eflags;
 } task_context_t;
 
@@ -34,12 +41,16 @@ typedef struct task
 {
     uint32_t pid;
     task_state_t state;
+    task_type_t type;
     uint32_t quantum;
     uint32_t ticks;
 
     uint32_t *stack_base;
     uint32_t *stack_top;
     uint32_t stack_size;
+
+    uint32_t *user_stack_top;
+    uint32_t user_stack_size;
 
     task_context_t context;
 
@@ -49,6 +60,7 @@ typedef struct task
 
 void task_init(void);
 task_t *task_create(void (*entry_point)(void));
+task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size);
 task_context_t *task_schedule(void);
 task_context_t *task_tick(void);
 task_t *task_get_current(void);

@@ -123,12 +123,28 @@ task_resume:
     mov 0(%ebx), %edi
     mov 4(%ebx), %esi
     mov 8(%ebx), %ebp
-    mov 12(%ebx), %esp          # Switch to the target task stack
-    push 40(%ebx)
-    push 36(%ebx)
-    push 32(%ebx)
     mov 16(%ebx), %ebx
     mov 20(%ebx), %edx
     mov 24(%ebx), %ecx
     mov 28(%ebx), %eax
+
+    mov 12(%ebx), %esp          # Switch to the target task stack
+    mov 32(%ebx), %edx          # Saved EIP
+    mov 36(%ebx), %ecx          # Saved CS
+    mov 44(%ebx), %esi          # Saved EFLAGS
+
+    cmp $0x08, %ecx
+    je .resume_kernel
+
+    push 40(%ebx)               # Saved SS
+    push 12(%ebx)               # Saved ESP
+    push %esi                   # Saved EFLAGS
+    push %ecx                   # Saved CS
+    push %edx                   # Saved EIP
+    iret
+
+.resume_kernel:
+    push %esi                   # Saved EFLAGS
+    push %ecx                   # Saved CS
+    push %edx                   # Saved EIP
     iret
