@@ -75,12 +75,11 @@ load_idt:
     # Return to the calling C function (idt_init)
     ret
 
-# Macro for interrupts that do not push an error code
 .macro no_error_code_interrupt_handler num
 .global interrupt_handler_\num
 interrupt_handler_\num:
     push $0                     # Push dummy error code
-    push $\num                # Push the interrupt number
+    push \num                  # Push the interrupt number
     jmp common_interrupt_handler # Jump to the shared logic
 .endm
 
@@ -89,6 +88,9 @@ no_error_code_interrupt_handler 32
 
 # Define the specific handler for the keyboard (33)
 no_error_code_interrupt_handler 33
+
+# Define the syscall handler for INT 0x80 (128)
+no_error_code_interrupt_handler 128
 
 # The common handler saves the state and calls C
 common_interrupt_handler:
@@ -117,16 +119,51 @@ common_interrupt_handler:
 .global task_resume
 .type task_resume, @function
 task_resume:
-    mov %eax, %ebx              # EBX = pointer to task_context_t
-    mov 0(%ebx), %edi
-    mov 4(%ebx), %esi
-    mov 8(%ebx), %ebp
-    mov 12(%ebx), %esp          # Switch to the target task stack
-    push 40(%ebx)
-    push 36(%ebx)
-    push 32(%ebx)
-    mov 16(%ebx), %ebx
-    mov 20(%ebx), %edx
-    mov 24(%ebx), %ecx
-    mov 28(%ebx), %eax
+    mov %eax, %edi              # EDI = pointer to task_context_t
+    mov 36(%edi), %ecx          # Target CS from task context
+    cmp $0x1B, %ecx             # USER_CODE_SEG
+    jne .resume_kernel
+
+    # User-mode resume: build a full ring transition iret frame.
+    mov 12(%edi), %edx          # Target user ESP
+    sub $20, %edx
+    mov %edx, %esp
+
+    mov 32(%edi), %eax          # Saved EIP
+    mov %eax, 0(%esp)
+    mov 36(%edi), %eax          # Saved CS
+    mov %eax, 4(%esp)
+    mov 44(%edi), %eax          # Saved EFLAGS
+    mov %eax, 8(%esp)
+    mov 12(%edi), %eax          # User ESP
+    mov %eax, 12(%esp)
+    mov 40(%edi), %eax          # Saved SS
+    mov %eax, 16(%esp)
+
+    mov 0(%edi), %edi
+    mov 4(%edi), %esi
+    mov 8(%edi), %ebp
+    mov 16(%edi), %ebx
+    mov 20(%edi), %edx
+    mov 24(%edi), %ecx
+    mov 28(%edi), %eax
+    iret
+
+.resume_kernel:
+    mov 12(%edi), %esp
+
+    mov 32(%edi), %eax          # Saved EIP
+    mov %eax, 0(%esp)
+    mov 36(%edi), %eax          # Saved CS
+    mov %eax, 4(%esp)
+    mov 44(%edi), %eax          # Saved EFLAGS
+    mov %eax, 8(%esp)
+
+    mov 0(%edi), %edi
+    mov 4(%edi), %esi
+    mov 8(%edi), %ebp
+    mov 16(%edi), %ebx
+    mov 20(%edi), %edx
+    mov 24(%edi), %ecx
+    mov 28(%edi), %eax
     iret

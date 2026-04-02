@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include <kernel/memory_map.h>
+#include <kernel/gdt.h>
+#include <drivers/timer.h>
 #include <kernel/task.h>
 #include <kernel/log.h>
 
@@ -78,19 +80,26 @@ static task_context_t *task_create_context(task_t *task, void (*entry_point)(voi
     context->edi = 0;
     context->esi = 0;
     context->ebp = 0;
-    context->esp = (uint32_t)(uintptr_t)task->stack_top - 32;
     context->ebx = 0;
     context->edx = 0;
     context->ecx = 0;
     context->eax = 0;
-
     context->eip = (uint32_t)(uintptr_t)entry_point;
-    context->cs = 0x08;
     context->eflags = 0x202;
 
-    printk(LOG_DEBUG, "SCHED DEBUG: create pid=%u stack_base=0x%08x stack_top=0x%08x context=%p esp=0x%08x",
-           task->pid, (uint32_t)task->stack_base, (uint32_t)task->stack_top,
-           (void *)context, context->esp);
+    if (task->type == TASK_TYPE_USER)
+    {
+        context->esp = (uint32_t)(uintptr_t)task->user_stack_top - 32;
+        context->cs = USER_CODE_SEG;
+        context->ss = USER_DATA_SEG;
+    }
+    else
+    {
+        context->esp = (uint32_t)(uintptr_t)task->stack_top - 32;
+        context->cs = KERNEL_CODE_SEG;
+        context->ss = KERNEL_DATA_SEG;
+    }
+
     return context;
 }
 
@@ -104,40 +113,33 @@ void task_save_current_context(void *cpu_state_ptr)
     task_context_t *context = &current_task->context;
     uint32_t *saved_regs = (uint32_t *)cpu_state_ptr;
     uint32_t saved_esp = saved_regs[3];
-    uint32_t saved_intno = saved_regs[8];
-    uint32_t saved_err = saved_regs[9];
-    uint32_t saved_eip = saved_regs[10];
-    uint32_t saved_cs = saved_regs[11];
-    uint32_t saved_eflags = saved_regs[12];
-
-    printk(LOG_DEBUG, "SCHED DEBUG: pid=%u context=%p stack_base=0x%08x stack_top=0x%08x saved_regs[0]=0x%08x saved_regs[1]=0x%08x saved_regs[2]=0x%08x saved_regs[3]=0x%08x saved_regs[4]=0x%08x saved_regs[5]=0x%08x saved_regs[6]=0x%08x saved_regs[7]=0x%08x saved_regs[8]=0x%08x saved_regs[9]=0x%08x saved_regs[10]=0x%08x saved_regs[11]=0x%08x saved_regs[12]=0x%08x int=%u err=%u raw_eip=0x%08x raw_cs=0x%08x raw_eflags=0x%08x",
-           current_task->pid, (void *)context,
-           (uint32_t)current_task->stack_base, (uint32_t)current_task->stack_top,
-           saved_regs[0], saved_regs[1], saved_regs[2], saved_regs[3], saved_regs[4], saved_regs[5], saved_regs[6], saved_regs[7],
-           saved_regs[8], saved_regs[9], saved_regs[10], saved_regs[11], saved_regs[12],
-           saved_intno, saved_err, saved_eip, saved_cs, saved_eflags);
 
     context->edi = saved_regs[0];
     context->esi = saved_regs[1];
     context->ebp = saved_regs[2];
-    context->esp = saved_esp + 20; /* resume at the original task stack pointer */
     context->ebx = saved_regs[4];
     context->edx = saved_regs[5];
     context->ecx = saved_regs[6];
     context->eax = saved_regs[7];
 
+    /* The return frame starts after pusha, the interrupt number, and the dummy error code. */
+    /* For a ring3 interrupt, the CPU pushes EIP, CS, EFLAGS, ESP, SS. */
     uint32_t *return_frame = saved_regs + 10;
     context->eip = return_frame[0];
     context->cs = return_frame[1];
     context->eflags = return_frame[2];
 
-    printk(LOG_DEBUG, "SCHED DEBUG POST: pid=%u ctx=%p edi=0x%08x esi=0x%08x ebp=0x%08x esp=0x%08x ebx=0x%08x edx=0x%08x ecx=0x%08x eax=0x%08x eip=0x%08x cs=0x%08x eflags=0x%08x",
-           current_task->pid, (void *)context,
-           context->edi, context->esi, context->ebp,
-           context->esp, context->ebx, context->edx,
-           context->ecx, context->eax, context->eip,
-           context->cs, context->eflags);
-    printk(LOG_DEBUG, "SCHED: saved context for pid=%u eip=0x%08x esp=0x%08x", current_task->pid, context->eip, context->esp);
+    if (current_task->type == TASK_TYPE_USER || context->cs == USER_CODE_SEG)
+    {
+        /* Preserve the user-mode stack state for ring3 resumes. */
+        context->esp = return_frame[3];
+        context->ss = return_frame[4];
+    }
+    else
+    {
+        context->esp = saved_esp + 20; /* resume at the original task stack pointer */
+        context->ss = KERNEL_DATA_SEG;
+    }
 }
 
 static uint32_t task_stack_slot_count(void)
@@ -145,6 +147,22 @@ static uint32_t task_stack_slot_count(void)
     uint32_t region_size = KERNEL_STACK_REGION_END - KERNEL_STACK_REGION_START + 1;
     uint32_t slot_count = region_size / KERNEL_STACK_SIZE;
     return slot_count > TASK_MAX ? TASK_MAX : slot_count;
+}
+
+static void task_wake_waiting_tasks(void)
+{
+    uint32_t now = timer_get_ticks();
+
+    for (uint32_t index = 0; index < TASK_MAX; ++index)
+    {
+        task_t *task = &task_table[index];
+        if (task->state == TASK_WAITING && task->wake_tick != 0 && task->wake_tick <= now)
+        {
+            task->state = TASK_READY;
+            task->wake_tick = 0;
+            task_enqueue(task);
+        }
+    }
 }
 
 static bool task_allocate_stack(task_t *task)
@@ -196,11 +214,16 @@ static task_t *task_alloc(void)
             task_t *task = &task_table[index];
             task->pid = next_pid++;
             task->state = TASK_READY;
+            task->type = TASK_TYPE_KERNEL;
             task->quantum = TASK_QUANTUM_DEFAULT;
             task->ticks = 0;
             task->stack_base = NULL;
             task->stack_top = NULL;
             task->stack_size = 0;
+            task->user_stack_top = NULL;
+            task->user_stack_size = 0;
+            task->wake_tick = 0;
+            task->exit_status = 0;
             memset(&task->context, 0, sizeof(task_context_t));
             task->next = NULL;
             task->prev = NULL;
@@ -225,11 +248,16 @@ void task_init(void)
         task_free_stack(&task_table[index]);
         task_table[index].pid = 0;
         task_table[index].state = TASK_UNUSED;
+        task_table[index].type = TASK_TYPE_KERNEL;
         task_table[index].quantum = 0;
         task_table[index].ticks = 0;
         task_table[index].stack_base = NULL;
         task_table[index].stack_top = NULL;
         task_table[index].stack_size = 0;
+        task_table[index].user_stack_top = NULL;
+        task_table[index].user_stack_size = 0;
+        task_table[index].wake_tick = 0;
+        task_table[index].exit_status = 0;
         memset(&task_table[index].context, 0, sizeof(task_context_t));
         task_table[index].next = NULL;
         task_table[index].prev = NULL;
@@ -250,6 +278,31 @@ task_t *task_create(void (*entry_point)(void))
         return NULL;
     }
 
+    task->type = TASK_TYPE_KERNEL;
+    task->state = TASK_READY;
+    task->ticks = 0;
+    task->quantum = TASK_QUANTUM_DEFAULT;
+    task_create_context(task, entry_point);
+    task_enqueue(task);
+    return task;
+}
+
+task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size)
+{
+    if (user_stack_top == NULL || user_stack_size == 0)
+    {
+        return NULL;
+    }
+
+    task_t *task = task_alloc();
+    if (task == NULL)
+    {
+        return NULL;
+    }
+
+    task->type = TASK_TYPE_USER;
+    task->user_stack_top = user_stack_top;
+    task->user_stack_size = user_stack_size;
     task->state = TASK_READY;
     task->ticks = 0;
     task->quantum = TASK_QUANTUM_DEFAULT;
@@ -277,6 +330,8 @@ task_context_t *task_schedule(void)
 
 task_context_t *task_tick(void)
 {
+    task_wake_waiting_tasks();
+
     if (current_task == NULL || current_task->state != TASK_RUNNING)
     {
         return NULL;
@@ -285,7 +340,9 @@ task_context_t *task_tick(void)
     current_task->ticks++;
     if (current_task->ticks >= current_task->quantum)
     {
+#ifdef DEBUG
         task_t *old_task = current_task;
+#endif
         current_task->state = TASK_READY;
         task_enqueue(current_task);
         task_t *next = task_select_next();
@@ -294,7 +351,9 @@ task_context_t *task_tick(void)
             return NULL;
         }
 
-        printk(LOG_INFO, "SCHED: switch pid=%u -> pid=%u", old_task->pid, next->pid);
+#ifdef DEBUG
+        printk(LOG_DEBUG, "SCHED: switch pid=%u -> pid=%u", old_task->pid, next->pid);
+#endif
         return &next->context;
     }
 

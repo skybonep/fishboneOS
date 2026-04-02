@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stddef.h>
 #include <kernel/pic.h>
+#include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <drivers/timer.h>
 #include <drivers/keyboard.h>
@@ -102,12 +103,14 @@ void *interrupt_handler(void *cpu_state_ptr)
         return NULL;
     }
 
-    // Debug: confirm the interrupt number and stack frame are correct.
-    printk(LOG_DEBUG, "INTERRUPT: number=%u error=%u eip=0x%08x cs=0x%08x eflags=0x%08x",
-           interrupt, stack.error_code, stack.eip, stack.cs, stack.eflags);
+    // 2. Handle Syscalls and Hardware Interrupts
+    task_context_t *next_context = NULL;
 
-    // 2. Handle Hardware Interrupts (32+)
-    void *next_context = NULL;
+    if (interrupt == 128)
+    {
+        next_context = syscall_dispatch(interrupt, saved_regs);
+        return next_context;
+    }
 
     if (interrupt == 32)
     {
