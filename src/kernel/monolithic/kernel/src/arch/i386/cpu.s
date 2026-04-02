@@ -119,32 +119,51 @@ common_interrupt_handler:
 .global task_resume
 .type task_resume, @function
 task_resume:
-    mov %eax, %ebx              # EBX = pointer to task_context_t
-    mov 0(%ebx), %edi
-    mov 4(%ebx), %esi
-    mov 8(%ebx), %ebp
-    mov 16(%ebx), %ebx
-    mov 20(%ebx), %edx
-    mov 24(%ebx), %ecx
-    mov 28(%ebx), %eax
+    mov %eax, %edi              # EDI = pointer to task_context_t
+    mov 36(%edi), %ecx          # Target CS from task context
+    cmp $0x1B, %ecx             # USER_CODE_SEG
+    jne .resume_kernel
 
-    mov 12(%ebx), %esp          # Switch to the target task stack
-    mov 32(%ebx), %edx          # Saved EIP
-    mov 36(%ebx), %ecx          # Saved CS
-    mov 44(%ebx), %esi          # Saved EFLAGS
+    # User-mode resume: build a full ring transition iret frame.
+    mov 12(%edi), %edx          # Target user ESP
+    sub $20, %edx
+    mov %edx, %esp
 
-    cmp $0x08, %ecx
-    je .resume_kernel
+    mov 32(%edi), %eax          # Saved EIP
+    mov %eax, 0(%esp)
+    mov 36(%edi), %eax          # Saved CS
+    mov %eax, 4(%esp)
+    mov 44(%edi), %eax          # Saved EFLAGS
+    mov %eax, 8(%esp)
+    mov 12(%edi), %eax          # User ESP
+    mov %eax, 12(%esp)
+    mov 40(%edi), %eax          # Saved SS
+    mov %eax, 16(%esp)
 
-    push 40(%ebx)               # Saved SS
-    push 12(%ebx)               # Saved ESP
-    push %esi                   # Saved EFLAGS
-    push %ecx                   # Saved CS
-    push %edx                   # Saved EIP
+    mov 0(%edi), %edi
+    mov 4(%edi), %esi
+    mov 8(%edi), %ebp
+    mov 16(%edi), %ebx
+    mov 20(%edi), %edx
+    mov 24(%edi), %ecx
+    mov 28(%edi), %eax
     iret
 
 .resume_kernel:
-    push %esi                   # Saved EFLAGS
-    push %ecx                   # Saved CS
-    push %edx                   # Saved EIP
+    mov 12(%edi), %esp
+
+    mov 32(%edi), %eax          # Saved EIP
+    mov %eax, 0(%esp)
+    mov 36(%edi), %eax          # Saved CS
+    mov %eax, 4(%esp)
+    mov 44(%edi), %eax          # Saved EFLAGS
+    mov %eax, 8(%esp)
+
+    mov 0(%edi), %edi
+    mov 4(%edi), %esi
+    mov 8(%edi), %ebp
+    mov 16(%edi), %ebx
+    mov 20(%edi), %edx
+    mov 24(%edi), %ecx
+    mov 28(%edi), %eax
     iret

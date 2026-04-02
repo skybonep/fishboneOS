@@ -121,6 +121,8 @@ void task_save_current_context(void *cpu_state_ptr)
     context->ecx = saved_regs[6];
     context->eax = saved_regs[7];
 
+    /* The return frame starts after pusha, the interrupt number, and the dummy error code. */
+    /* For a ring3 interrupt, the CPU pushes EIP, CS, EFLAGS, ESP, SS. */
     uint32_t *return_frame = saved_regs + 10;
     context->eip = return_frame[0];
     context->cs = return_frame[1];
@@ -128,6 +130,7 @@ void task_save_current_context(void *cpu_state_ptr)
 
     if (current_task->type == TASK_TYPE_USER || context->cs == USER_CODE_SEG)
     {
+        /* Preserve the user-mode stack state for ring3 resumes. */
         context->esp = return_frame[3];
         context->ss = return_frame[4];
     }
