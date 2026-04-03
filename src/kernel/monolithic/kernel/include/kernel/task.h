@@ -75,5 +75,6 @@ task_t *task_get_current(void);
 void task_set_current(task_t *task);
 void task_save_current_context(void *cpu_state_ptr);
 void task_exit(int status);
+void task_terminate(int status);
 
 #endif /* KERNEL_TASK_H */

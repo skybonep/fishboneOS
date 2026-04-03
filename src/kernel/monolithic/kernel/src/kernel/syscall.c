@@ -62,7 +62,7 @@ int sys_write(int fd, const char *buf, uint32_t len)
 
 void sys_exit(int status)
 {
-    task_exit(status);
+    task_terminate(status);
 }
 
 void *sys_alloc(uint32_t size)

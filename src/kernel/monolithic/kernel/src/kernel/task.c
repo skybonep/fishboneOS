@@ -197,7 +197,7 @@ static void task_wake_waiting_tasks(void)
     }
 }
 
-void task_exit(int status)
+void task_terminate(int status)
 {
     if (current_task == NULL)
         return;
@@ -211,13 +211,19 @@ void task_exit(int status)
         if (current_task->user_stack_paddr != 0)
         {
             pmm_free_frame((void *)current_task->user_stack_paddr);
+            current_task->user_stack_paddr = 0;
         }
         if (current_task->user_code_paddr != 0)
         {
             pmm_free_frame((void *)current_task->user_code_paddr);
+            current_task->user_code_paddr = 0;
         }
     }
+}
 
+void task_exit(int status)
+{
+    task_terminate(status);
     task_schedule();
 }
 

@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <kernel/pic.h>
 #include <kernel/cpu.h>
+#include <kernel/gdt.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <drivers/timer.h>
@@ -99,7 +100,17 @@ void *interrupt_handler(void *cpu_state_ptr)
     // 1. Handle CPU Exceptions (0-31)
     if (interrupt < 32)
     {
-        printk(LOG_FATAL, "fault:%d CS=%08x EIP=%08x CR2=%08x", interrupt, stack.cs, stack.eip, read_cr2());
+        uint32_t fault_addr = read_cr2();
+
+        if (interrupt == 14 && stack.cs == USER_CODE_SEG)
+        {
+            task_t *current = task_get_current();
+            printk(LOG_ERROR, "page fault in user task pid=%u EIP=0x%08x addr=0x%08x", current ? current->pid : 0, stack.eip, fault_addr);
+            task_terminate(14);
+            return task_schedule();
+        }
+
+        printk(LOG_FATAL, "fault:%d CS=%08x EIP=%08x CR2=%08x", interrupt, stack.cs, stack.eip, fault_addr);
         dump_registers(cpu, stack, interrupt);
         return NULL;
     }

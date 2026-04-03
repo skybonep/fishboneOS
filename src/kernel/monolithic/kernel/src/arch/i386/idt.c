@@ -15,6 +15,7 @@ void idt_set_gate(unsigned char num, unsigned int base, unsigned short sel, unsi
 // These assembly wrappers are created in your 'cpu.s' using macros
 extern void interrupt_handler_32();
 extern void interrupt_handler_33();
+extern void interrupt_handler_14();
 extern void interrupt_handler_128();
 
 void idt_init()
@@ -40,6 +41,10 @@ void idt_init()
     // Index: 33 (0x21) - Keyboard IRQ 1 remapped
     // Base: Address of the assembly wrapper 'interrupt_handler_33'
     idt_set_gate(33, (unsigned int)interrupt_handler_33, 0x08, 0x8E);
+
+    /* --- Register the Page Fault Handler --- */
+    // Index: 14 - Page Fault
+    idt_set_gate(14, (unsigned int)interrupt_handler_14, 0x08, 0x8E);
 
     /* --- Register the Syscall Handler --- */
     // Index: 128 (0x80) - User syscall trap

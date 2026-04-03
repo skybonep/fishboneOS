@@ -103,6 +103,9 @@ no_error_code_interrupt_handler 32
 # Define the specific handler for the keyboard (33)
 no_error_code_interrupt_handler 33
 
+# Define the page fault handler (14)
+no_error_code_interrupt_handler 14
+
 # Define the syscall handler for INT 0x80 (128)
 no_error_code_interrupt_handler 128
 
