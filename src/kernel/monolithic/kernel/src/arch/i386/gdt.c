@@ -1,7 +1,9 @@
 #include <kernel/gdt.h>
+#include <string.h>
 
 struct gdt_entry gdt[12]; // 3 is enough for basic code/data, but we can reserve more for future use
 struct gdt_ptr gp;
+struct tss_entry tss __attribute__((aligned(16)));
 
 /* Internal helper to construct entries using the bit-field structures */
 void gdt_set_gate(int num, unsigned int base, unsigned int limit,
@@ -24,7 +26,7 @@ void gdt_set_gate(int num, unsigned int base, unsigned int limit,
 void gdt_init()
 {
     /* 1. Set the GDT Pointer */
-    gp.size = (sizeof(struct gdt_entry) * 5) - 1;
+    gp.size = (sizeof(struct gdt_entry) * 6) - 1; // Updated to include TSS
     gp.address = (unsigned int)&gdt;
 
     /* 2. Index 0: Null Descriptor (Hardware requirement) */
@@ -77,7 +79,30 @@ void gdt_init()
         .granularity = 1, .size = 1};
     gdt_set_gate(4, 0, 0xFFFFFFFF, udata_access, udata_gran);
 
-    /* 7. Load the GDT and flush segment registers */
+    /* 7. Index 5: TSS Descriptor */
+    struct gdt_access tss_access = {
+        .accessed = 1,  // Type 9 (available TSS) requires accessed bit set in descriptor
+        .present = 1,
+        .dpl = 0,
+        .s_type = 0,     // System segment
+        .executable = 1, // Type 9 for available TSS
+        .read_write = 0};
+    struct gdt_gran tss_gran = {
+        .granularity = 0, .size = 0}; // Byte granularity, 32-bit TSS uses D/B=0
+    gdt_set_gate(5, (unsigned int)&tss, sizeof(struct tss_entry) - 1, tss_access, tss_gran);
+
+    /* 8. Initialize TSS */
+    memset(&tss, 0, sizeof(struct tss_entry));
+    tss.ss0 = KERNEL_DATA_SEG;
+    // Set esp0 to current stack pointer for initial kernel stack
+    asm volatile("mov %%esp, %0" : "=r"(tss.esp0));
+    tss.iomap_base = sizeof(struct tss_entry); // No I/O map
+
+    /* 9. Load the GDT and flush segment registers */
     extern void load_gdt(unsigned int);
     load_gdt((unsigned int)&gp);
+
+    /* 10. Load the TSS */
+    extern void load_tss(unsigned int);
+    load_tss(TSS_SEG);
 }

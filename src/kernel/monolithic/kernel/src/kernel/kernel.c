@@ -17,9 +17,11 @@
 #include <kernel/memory_map.h>
 #include <kernel/pmm.h>
 #include <kernel/paging.h>
+#include <kernel/vmm.h>
 #include <kernel/malloc.h>
 #include <kernel/info.h>
 #include <kernel/task.h>
+#include <kernel/cpu.h>
 
 extern void user_main(void);
 
@@ -132,16 +134,6 @@ static void kernel_idle(void)
 	asm volatile("hlt");
 }
 
-static void kernel_worker(void)
-{
-	while (1)
-	{
-		for (volatile uint32_t i = 0; i < 1000000; ++i)
-		{
-		}
-	}
-}
-
 static void kernel_dispatch_events(void)
 {
 	while (keyboard_has_event())
@@ -153,9 +145,10 @@ static void kernel_dispatch_events(void)
 
 static void kernel_dispatch_periodic_services(void)
 {
-	if (kernel_ticks != kernel_last_service_tick)
+	uint32_t ticks = timer_get_ticks();
+	if (ticks != kernel_last_service_tick)
 	{
-		kernel_last_service_tick = kernel_ticks;
+		kernel_last_service_tick = ticks;
 		/* Placeholder for timer-driven services such as scheduling or housekeeping. */
 	}
 }
@@ -189,6 +182,7 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	/* Initialize the serial driver first */
 	serial_init(SERIAL_COM1_BASE);
+	printk(LOG_INFO, "kernel_main: set up serial + interrupts");
 
 	/* Initialize terminal interface */
 	terminal_init();
@@ -197,13 +191,19 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	pmm_init(mbinfo);
 
 	paging_init();
+	printk(LOG_INFO, "kernel_main: paging initialized, kernel CR3=0x%08x", read_cr3());
+
+	/* Prepare user stack parameters (allocation will be per-user-address-space). */
+	uint32_t user_stack_vaddr = 0xBFFFE000; // Top of user space minus two pages, page aligned (with guard page)
+	const uint32_t user_stack_size = 2 * PAGE_SIZE;
+	uint32_t *user_stack_top = (uint32_t *)(user_stack_vaddr + user_stack_size);
+
 	heap_init();
 	task_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
-	static uint32_t user_stack[1024];
-	static const uint32_t user_stack_size = sizeof(user_stack);
-	uint32_t *user_stack_top = (uint32_t *)((uintptr_t)user_stack + user_stack_size);
+	/* Confirm kernel is ready */
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, creating tasks\n");
 
 	/* Create initial kernel tasks before starting timer-driven scheduling. */
 	task_t *idle_task = task_create(kernel_idle);
@@ -214,16 +214,19 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
 	}
 
-	task_create(kernel_worker);
-	task_t *worker_task_2 = task_create(kernel_worker);
+	// task_create(kernel_worker);
+	// task_t *worker_task_2 = task_create(kernel_worker);
 	if (task_create_user(user_main, user_stack_top, user_stack_size) == NULL)
 	{
 		printk(LOG_ERROR, "Failed to create user task");
 	}
-	if (worker_task_2 == NULL)
-	{
-		printk(LOG_ERROR, "Failed to create worker task 2");
-	}
+	// if (worker_task_2 == NULL)
+	// {
+	// 	printk(LOG_ERROR, "Failed to create worker task 2");
+	// }
+
+	/* Confirm kernel is ready */
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting scheduler\n");
 
 #ifdef DEBUG
 	boot_run_tests();

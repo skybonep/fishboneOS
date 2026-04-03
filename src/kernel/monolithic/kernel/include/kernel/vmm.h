@@ -9,7 +9,7 @@
 
 /* The virtual address where the Page Directory is mapped for editing. */
 /* This resides in the higher-half of the address space [4]. */
-#define VMM_PDT_VIRTUAL_ADDR 0xFFFFF000 
+#define VMM_PDT_VIRTUAL_ADDR 0xFFFFF000
 
 /* Temporary mapping window used to break the "circular dependency" [5]. */
 /* This is the last entry of the kernel's first Page Table [6]. */
@@ -17,7 +17,7 @@
 
 /**
  * vmm_init:
- * Initializes the VMM state. This typically involves ensuring the 
+ * Initializes the VMM state. This typically involves ensuring the
  * Page Directory is mapped into virtual memory so the kernel can edit it.
  */
 void vmm_init(uint32_t pdt_phys_addr);
@@ -26,8 +26,30 @@ void vmm_init(uint32_t pdt_phys_addr);
  * vmm_map_page:
  * Maps a virtual address (vaddr) to a physical address (paddr) with flags.
  * This function handles the allocation of new Page Tables if needed [3, 7].
+ * Note: Flags are applied to both the PTE and PDE (if allocating a new PT).
+ * For kernel pages, omit PAGE_USER; for user pages, include PAGE_USER.
  */
 void vmm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags);
+
+uint32_t vmm_get_kernel_pdt_phys(void);
+
+uint32_t vmm_clone_kernel_mappings(void);
+
+void vmm_map_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr, uint32_t paddr, uint32_t flags);
+
+/**
+ * vmm_map_kernel_page:
+ * Maps a virtual address to a physical frame with supervisor-only permissions.
+ * Equivalent to vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE).
+ */
+void vmm_map_kernel_page(uint32_t vaddr, uint32_t paddr);
+
+/**
+ * vmm_map_user_page:
+ * Maps a virtual address to a physical frame with user-accessible permissions.
+ * Equivalent to vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER).
+ */
+void vmm_map_user_page(uint32_t vaddr, uint32_t paddr);
 
 /**
  * vmm_unmap_page:
@@ -37,7 +59,7 @@ void vmm_unmap_page(uint32_t vaddr);
 
 /**
  * vmm_get_phys_addr:
- * Translates a virtual address to its physical address using the 
+ * Translates a virtual address to its physical address using the
  * current Page Directory and Page Tables [9, 10].
  * Returns 0 if no mapping exists.
  */

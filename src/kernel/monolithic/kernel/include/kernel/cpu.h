@@ -6,6 +6,7 @@ unsigned int read_cr0(void);
 unsigned int read_cr2(void);
 unsigned int read_cr3(void);
 unsigned int read_cr4(void);
+void load_cr3(unsigned int value);
 unsigned int read_ebx(void);
 unsigned int read_esp(void);
 unsigned int read_ebp(void);
