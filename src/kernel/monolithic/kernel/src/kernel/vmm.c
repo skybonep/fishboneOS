@@ -1,12 +1,15 @@
 #include <kernel/vmm.h>
 #include <kernel/pmm.h>
 #include <kernel/paging.h>
+#include <kernel/memory_map.h>
+#include <kernel/cpu.h>
 #include <string.h>
 
 // Assembly helper to invalidate a TLB entry (defined in paging.s)
 extern void invalidate_tlb_entry(uint32_t vaddr);
 
 static uint32_t current_pdt_phys = 0;
+static uint32_t kernel_pdt_phys = 0;
 
 /**
  * vmm_init:
@@ -15,6 +18,57 @@ static uint32_t current_pdt_phys = 0;
 void vmm_init(uint32_t pdt_phys_addr)
 {
     current_pdt_phys = pdt_phys_addr;
+    kernel_pdt_phys = pdt_phys_addr;
+}
+
+uint32_t vmm_get_kernel_pdt_phys(void)
+{
+    return kernel_pdt_phys;
+}
+
+uint32_t vmm_clone_kernel_mappings(void)
+{
+    uint32_t new_pdt_phys = (uint32_t)pmm_alloc_frame();
+    if (new_pdt_phys == 0)
+    {
+        return 0;
+    }
+
+    uint32_t *kernel_pdt = (uint32_t *)VMM_PDT_VIRTUAL_ADDR;
+    uint32_t *kernel_pt = (uint32_t *)((uint32_t)0xFFC00000 + (KERNEL_VIRT_BASE >> 22) * PAGE_SIZE); // Kernel PT entry base
+
+    // Map new page directory into temporary window (0xC03FF000)
+    kernel_pt[1023] = new_pdt_phys | PAGE_PRESENT | PAGE_WRITE;
+    invalidate_tlb_entry(VMM_TEMP_PAGE);
+
+    memset((void *)VMM_TEMP_PAGE, 0, PAGE_SIZE);
+
+    uint32_t kernel_base_pde = KERNEL_VIRT_BASE >> 22;
+    for (uint32_t i = 0; i < kernel_base_pde; ++i)
+    {
+        ((uint32_t *)VMM_TEMP_PAGE)[i] = kernel_pdt[i];
+    }
+    for (uint32_t i = kernel_base_pde; i < 1023; ++i)
+    {
+        ((uint32_t *)VMM_TEMP_PAGE)[i] = kernel_pdt[i];
+    }
+
+    // Set recursive mapping inside new PDT for itself
+    ((uint32_t *)VMM_TEMP_PAGE)[1023] = new_pdt_phys | PAGE_PRESENT | PAGE_WRITE;
+
+    // Unmap temporary window
+    kernel_pt[1023] = 0;
+    invalidate_tlb_entry(VMM_TEMP_PAGE);
+
+    return new_pdt_phys;
+}
+
+void vmm_map_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr, uint32_t paddr, uint32_t flags)
+{
+    uint32_t old_cr3 = read_cr3();
+    load_cr3(pdt_phys);
+    vmm_map_page(vaddr, paddr, flags);
+    load_cr3(old_cr3);
 }
 
 /**
@@ -42,9 +96,9 @@ void vmm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags)
          * To clear the table, map it to our virtual "Temporary Window" (0xC03FF000).
          * This window is the 1023rd entry of the first kernel PT (PDE 768) [2, 4].
          */
-        uint32_t *kernel_pt = (uint32_t *)0xFFF00000; // Recusive address for PT 768
+        uint32_t *kernel_pt = (uint32_t *)((uint32_t)0xFFC00000 + (KERNEL_VIRT_BASE >> 22) * PAGE_SIZE); // Kernel PT (PDE for 0xC0000000)
 
-        // Correctly assign the physical address to the 1023rd slot [2]
+        // Temporarily map the new page table at 0xC03FF000 via the last slot in kernel PT
         kernel_pt[1023] = new_pt_paddr | PAGE_PRESENT | PAGE_WRITE;
 
         // Refresh TLB for the temporary window [5]

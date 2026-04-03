@@ -21,6 +21,7 @@
 #include <kernel/malloc.h>
 #include <kernel/info.h>
 #include <kernel/task.h>
+#include <kernel/cpu.h>
 
 extern void user_main(void);
 
@@ -190,6 +191,7 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	/* Initialize the serial driver first */
 	serial_init(SERIAL_COM1_BASE);
+	printk(LOG_INFO, "kernel_main: set up serial + interrupts");
 
 	/* Initialize terminal interface */
 	terminal_init();
@@ -198,11 +200,10 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	pmm_init(mbinfo);
 
 	paging_init();
+	printk(LOG_INFO, "kernel_main: paging initialized, kernel CR3=0x%08x", read_cr3());
 
-	/* Allocate and map user stack in user space */
-	uint32_t user_stack_vaddr = 0xBFFFF000; // Top of user space, page aligned
-	uint32_t user_stack_paddr = (uint32_t)pmm_alloc_frame();
-	vmm_map_page(user_stack_vaddr, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+	/* Prepare user stack parameters (allocation will be per-user-address-space). */
+	uint32_t user_stack_vaddr = 0xBFFFE000; // Top of user space minus one page, page aligned
 	const uint32_t user_stack_size = PAGE_SIZE;
 	uint32_t *user_stack_top = (uint32_t *)(user_stack_vaddr + user_stack_size);
 
@@ -222,16 +223,16 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
 	}
 
-	task_create(kernel_worker);
-	task_t *worker_task_2 = task_create(kernel_worker);
+	// task_create(kernel_worker);
+	// task_t *worker_task_2 = task_create(kernel_worker);
 	if (task_create_user(user_main, user_stack_top, user_stack_size) == NULL)
 	{
 		printk(LOG_ERROR, "Failed to create user task");
 	}
-	if (worker_task_2 == NULL)
-	{
-		printk(LOG_ERROR, "Failed to create worker task 2");
-	}
+	// if (worker_task_2 == NULL)
+	// {
+	// 	printk(LOG_ERROR, "Failed to create worker task 2");
+	// }
 
 	/* Confirm kernel is ready */
 	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting scheduler\n");

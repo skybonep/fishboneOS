@@ -73,4 +73,8 @@ void paging_init()
     // 8. Install paging.
     load_page_directory((uint32_t *)pdt_phys);
     enable_paging();
+
+    // 9. Let VMM know the kernel CR3 for cloning later.
+    extern void vmm_init(uint32_t pdt_phys_addr);
+    vmm_init(pdt_phys);
 }

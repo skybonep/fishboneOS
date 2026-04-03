@@ -5,6 +5,10 @@
 
 #include <kernel/memory_map.h>
 #include <kernel/gdt.h>
+#include <kernel/cpu.h>
+#include <kernel/vmm.h>
+#include <kernel/pmm.h>
+#include <kernel/paging.h>
 #include <drivers/timer.h>
 #include <kernel/task.h>
 #include <kernel/log.h>
@@ -74,6 +78,7 @@ static task_t *task_select_next(void)
     task_t *next = ready_list_head;
     if (next == NULL)
     {
+        printk(LOG_INFO, "task_select_next: no ready task");
         return NULL;
     }
 
@@ -81,7 +86,20 @@ static task_t *task_select_next(void)
     next->state = TASK_RUNNING;
     next->ticks = 0;
     current_task = next;
+
+    printk(LOG_INFO, "task_select_next: switch to pid=%u type=%u pd=0x%08x", next->pid, next->type, next->page_directory_phys);
+
     task_update_tss();
+
+    if (current_task != NULL && current_task->page_directory_phys != 0)
+    {
+        load_cr3(current_task->page_directory_phys);
+    }
+    else
+    {
+        load_cr3(vmm_get_kernel_pdt_phys());
+    }
+
     return next;
 }
 
@@ -135,20 +153,22 @@ void task_save_current_context(void *cpu_state_ptr)
     context->eax = saved_regs[7];
 
     /* The return frame starts after pusha, the interrupt number, and the dummy error code. */
-    /* For a ring3 interrupt, the CPU pushes EIP, CS, EFLAGS, ESP, SS. */
-    uint32_t *return_frame = saved_regs + 10;
-    context->eip = return_frame[0];
-    context->cs = return_frame[1];
-    context->eflags = return_frame[2];
-
-    if (current_task->type == TASK_TYPE_USER || context->cs == USER_CODE_SEG)
+    uint32_t *return_frame = saved_regs + 13;
+    if (current_task->type == TASK_TYPE_USER)
     {
-        /* Preserve the user-mode stack state for ring3 resumes. */
-        context->esp = return_frame[3];
-        context->ss = return_frame[4];
+        /* For ring3 interrupt entry, the stack frame is: SS, ESP, EFLAGS, CS, EIP. */
+        context->ss = return_frame[0];
+        context->esp = return_frame[1];
+        context->eflags = return_frame[2];
+        context->cs = return_frame[3];
+        context->eip = return_frame[4];
     }
     else
     {
+        context->eflags = return_frame[0];
+        context->cs = return_frame[1];
+        context->eip = return_frame[2];
+
         context->esp = saved_esp; /* resume at the original task stack pointer */
         context->ss = KERNEL_DATA_SEG;
     }
@@ -236,6 +256,7 @@ static task_t *task_alloc(void)
             task->user_stack_size = 0;
             task->wake_tick = 0;
             task->exit_status = 0;
+            task->page_directory_phys = vmm_get_kernel_pdt_phys(); /* default to kernel PD */
             memset(&task->context, 0, sizeof(task_context_t));
             task->next = NULL;
             task->prev = NULL;
@@ -312,13 +333,63 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
         return NULL;
     }
 
+    uint32_t user_pdt = vmm_clone_kernel_mappings();
+    if (user_pdt == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task->page_directory_phys = user_pdt;
     task->type = TASK_TYPE_USER;
     task->user_stack_top = user_stack_top;
     task->user_stack_size = user_stack_size;
     task->state = TASK_READY;
     task->ticks = 0;
     task->quantum = TASK_QUANTUM_DEFAULT;
+
+    uint32_t user_stack_vaddr = (uint32_t)user_stack_top - user_stack_size;
+
+    printk(LOG_INFO, "task_create_user: pid=%u pd=0x%08x stack=0x%08x size=%u", task->pid, user_pdt, user_stack_vaddr, user_stack_size);
+
+    uint32_t user_stack_paddr = (uint32_t)pmm_alloc_frame();
+    if (user_stack_paddr == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    /* allocate a page in user address space for user code */
+    const uint32_t user_code_vaddr = 0x00100000; /* under identity-mapped range */
+    uint32_t user_code_paddr = (uint32_t)pmm_alloc_frame();
+    if (user_code_paddr == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    /* Copy user code into a kernel-temporary mapping first, then map frame in user PD. */
+    const uint32_t kernel_temp_vaddr = 0xC0800000;
+    vmm_map_page(kernel_temp_vaddr, user_code_paddr, PAGE_PRESENT | PAGE_WRITE);
+
+    {
+        uint8_t *dest = (uint8_t *)kernel_temp_vaddr;
+        uint8_t *src = (uint8_t *)entry_point;
+        for (uint32_t i = 0; i < PAGE_SIZE; ++i)
+        {
+            dest[i] = src[i];
+        }
+    }
+
+    vmm_unmap_page(kernel_temp_vaddr);
+
+    /* map user stack and user code into this task's PD */
+    vmm_map_page_for_pdt(user_pdt, user_stack_vaddr, user_stack_paddr, PAGE_WRITE | PAGE_USER);
+    vmm_map_page_for_pdt(user_pdt, user_code_vaddr, user_code_paddr, PAGE_WRITE | PAGE_USER);
+
     task_create_context(task, entry_point);
+    task->context.eip = user_code_vaddr;
+
     task_enqueue(task);
     return task;
 }
@@ -397,4 +468,13 @@ void task_set_current(task_t *task)
     }
 
     task_update_tss();
+
+    if (current_task != NULL && current_task->page_directory_phys != 0)
+    {
+        load_cr3(current_task->page_directory_phys);
+    }
+    else
+    {
+        load_cr3(vmm_get_kernel_pdt_phys());
+    }
 }

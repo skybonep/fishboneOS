@@ -18,6 +18,13 @@ read_cr3:
     mov %cr3, %eax    # Move CR3 to EAX
     ret
 
+.global load_cr3
+.type load_cr3, @function
+load_cr3:
+    mov 4(%esp), %eax
+    mov %eax, %cr3
+    ret
+
 .global read_cr4
 .type read_cr4, @function
 read_cr4:
@@ -147,13 +154,15 @@ task_resume:
     mov 40(%edi), %eax          # Saved SS
     mov %eax, 16(%esp)
 
-    mov 0(%edi), %edi
-    mov 4(%edi), %esi
-    mov 8(%edi), %ebp
-    mov 16(%edi), %ebx
-    mov 20(%edi), %edx
-    mov 24(%edi), %ecx
-    mov 28(%edi), %eax
+    mov %eax, %ecx              # ECX = context ptr
+
+    mov 0(%ecx), %edi
+    mov 4(%ecx), %esi
+    mov 8(%ecx), %ebp
+    mov 16(%ecx), %ebx
+    mov 20(%ecx), %edx
+    mov 24(%ecx), %ecx
+    mov 28(%ecx), %eax
     iret
 
 .resume_kernel:
@@ -166,11 +175,12 @@ task_resume:
     mov 44(%edi), %eax          # Saved EFLAGS
     mov %eax, 8(%esp)
 
-    mov 0(%edi), %edi
-    mov 4(%edi), %esi
-    mov 8(%edi), %ebp
-    mov 16(%edi), %ebx
-    mov 20(%edi), %edx
-    mov 24(%edi), %ecx
-    mov 28(%edi), %eax
+    mov %edi, %ecx              # ECX = context ptr
+    mov 0(%ecx), %edi
+    mov 4(%ecx), %esi
+    mov 8(%ecx), %ebp
+    mov 16(%ecx), %ebx
+    mov 20(%ecx), %edx
+    mov 24(%ecx), %ecx
+    mov 28(%ecx), %eax
     iret

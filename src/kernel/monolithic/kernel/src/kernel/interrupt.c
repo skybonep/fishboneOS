@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stddef.h>
 #include <kernel/pic.h>
+#include <kernel/cpu.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <drivers/timer.h>
@@ -98,7 +99,7 @@ void *interrupt_handler(void *cpu_state_ptr)
     // 1. Handle CPU Exceptions (0-31)
     if (interrupt < 32)
     {
-        // This is a fault/exception. Dump registers and halt.
+        printk(LOG_FATAL, "fault:%d CS=%08x EIP=%08x CR2=%08x", interrupt, stack.cs, stack.eip, read_cr2());
         dump_registers(cpu, stack, interrupt);
         return NULL;
     }

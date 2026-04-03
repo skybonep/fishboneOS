@@ -51,6 +51,10 @@ typedef struct task
 
     uint32_t *user_stack_top;
     uint32_t user_stack_size;
+
+    /* Per-task address space (CR3) */
+    uint32_t page_directory_phys;
+
     uint32_t wake_tick;
     int32_t exit_status;
 
