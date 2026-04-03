@@ -370,7 +370,7 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
 
     /* Copy user code into a kernel-temporary mapping first, then map frame in user PD. */
     const uint32_t kernel_temp_vaddr = 0xC0800000;
-    vmm_map_page(kernel_temp_vaddr, user_code_paddr, PAGE_PRESENT | PAGE_WRITE);
+    vmm_map_kernel_page(kernel_temp_vaddr, user_code_paddr);
 
     {
         uint8_t *dest = (uint8_t *)kernel_temp_vaddr;
@@ -384,8 +384,8 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
     vmm_unmap_page(kernel_temp_vaddr);
 
     /* map user stack and user code into this task's PD */
-    vmm_map_page_for_pdt(user_pdt, user_stack_vaddr, user_stack_paddr, PAGE_WRITE | PAGE_USER);
-    vmm_map_page_for_pdt(user_pdt, user_code_vaddr, user_code_paddr, PAGE_WRITE | PAGE_USER);
+    vmm_map_page_for_pdt(user_pdt, user_stack_vaddr, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    vmm_map_page_for_pdt(user_pdt, user_code_vaddr, user_code_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
 
     task_create_context(task, entry_point);
     task->context.eip = user_code_vaddr;

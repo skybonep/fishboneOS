@@ -71,6 +71,16 @@ void vmm_map_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr, uint32_t paddr, uin
     load_cr3(old_cr3);
 }
 
+void vmm_map_kernel_page(uint32_t vaddr, uint32_t paddr)
+{
+    vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE);
+}
+
+void vmm_map_user_page(uint32_t vaddr, uint32_t paddr)
+{
+    vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+}
+
 /**
  * vmm_map_page:
  * Maps a virtual address to a physical frame in the paging structures [6].

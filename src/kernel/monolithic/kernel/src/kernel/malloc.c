@@ -45,8 +45,8 @@ static header_t *expand_heap(size_t size)
 
         allocated_frames[pages_mapped++] = phys_frame;
 
-        // Map the physical frame to the virtual heap address [2]
-        vmm_map_page(heap_end_vaddr, (uint32_t)phys_frame, PAGE_PRESENT | PAGE_WRITE);
+        // Map the physical frame to the virtual heap address with supervisor permissions [2]
+        vmm_map_kernel_page(heap_end_vaddr, (uint32_t)phys_frame);
         heap_end_vaddr += PAGE_SIZE;
     }
 

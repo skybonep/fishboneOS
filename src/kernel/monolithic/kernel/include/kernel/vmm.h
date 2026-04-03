@@ -26,6 +26,8 @@ void vmm_init(uint32_t pdt_phys_addr);
  * vmm_map_page:
  * Maps a virtual address (vaddr) to a physical address (paddr) with flags.
  * This function handles the allocation of new Page Tables if needed [3, 7].
+ * Note: Flags are applied to both the PTE and PDE (if allocating a new PT).
+ * For kernel pages, omit PAGE_USER; for user pages, include PAGE_USER.
  */
 void vmm_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags);
 
@@ -34,6 +36,20 @@ uint32_t vmm_get_kernel_pdt_phys(void);
 uint32_t vmm_clone_kernel_mappings(void);
 
 void vmm_map_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr, uint32_t paddr, uint32_t flags);
+
+/**
+ * vmm_map_kernel_page:
+ * Maps a virtual address to a physical frame with supervisor-only permissions.
+ * Equivalent to vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE).
+ */
+void vmm_map_kernel_page(uint32_t vaddr, uint32_t paddr);
+
+/**
+ * vmm_map_user_page:
+ * Maps a virtual address to a physical frame with user-accessible permissions.
+ * Equivalent to vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER).
+ */
+void vmm_map_user_page(uint32_t vaddr, uint32_t paddr);
 
 /**
  * vmm_unmap_page:
