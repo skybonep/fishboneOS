@@ -134,16 +134,6 @@ static void kernel_idle(void)
 	asm volatile("hlt");
 }
 
-static void kernel_worker(void)
-{
-	while (1)
-	{
-		for (volatile uint32_t i = 0; i < 1000000; ++i)
-		{
-		}
-	}
-}
-
 static void kernel_dispatch_events(void)
 {
 	while (keyboard_has_event())
@@ -203,8 +193,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	printk(LOG_INFO, "kernel_main: paging initialized, kernel CR3=0x%08x", read_cr3());
 
 	/* Prepare user stack parameters (allocation will be per-user-address-space). */
-	uint32_t user_stack_vaddr = 0xBFFFE000; // Top of user space minus one page, page aligned
-	const uint32_t user_stack_size = PAGE_SIZE;
+	uint32_t user_stack_vaddr = 0xBFFFE000; // Top of user space minus two pages, page aligned (with guard page)
+	const uint32_t user_stack_size = 2 * PAGE_SIZE;
 	uint32_t *user_stack_top = (uint32_t *)(user_stack_vaddr + user_stack_size);
 
 	heap_init();

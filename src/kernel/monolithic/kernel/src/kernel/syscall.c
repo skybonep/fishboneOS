@@ -62,17 +62,7 @@ int sys_write(int fd, const char *buf, uint32_t len)
 
 void sys_exit(int status)
 {
-    task_t *current = task_get_current();
-    if (current == NULL)
-    {
-        return;
-    }
-
-    current->exit_status = status;
-    current->state = TASK_ZOMBIE;
-    current->wake_tick = 0;
-    current->quantum = 0;
-    current->ticks = 0;
+    task_exit(status);
 }
 
 void *sys_alloc(uint32_t size)

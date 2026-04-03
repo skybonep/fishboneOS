@@ -197,6 +197,30 @@ static void task_wake_waiting_tasks(void)
     }
 }
 
+void task_exit(int status)
+{
+    if (current_task == NULL)
+        return;
+
+    current_task->exit_status = status;
+    current_task->state = TASK_ZOMBIE;
+
+    // Free user resources if user task
+    if (current_task->type == TASK_TYPE_USER)
+    {
+        if (current_task->user_stack_paddr != 0)
+        {
+            pmm_free_frame((void *)current_task->user_stack_paddr);
+        }
+        if (current_task->user_code_paddr != 0)
+        {
+            pmm_free_frame((void *)current_task->user_code_paddr);
+        }
+    }
+
+    task_schedule();
+}
+
 static bool task_allocate_stack(task_t *task)
 {
     uint32_t slot_count = task_stack_slot_count();
@@ -254,6 +278,8 @@ static task_t *task_alloc(void)
             task->stack_size = 0;
             task->user_stack_top = NULL;
             task->user_stack_size = 0;
+            task->user_stack_paddr = 0;
+            task->user_code_paddr = 0;
             task->wake_tick = 0;
             task->exit_status = 0;
             task->page_directory_phys = vmm_get_kernel_pdt_phys(); /* default to kernel PD */
@@ -289,6 +315,8 @@ void task_init(void)
         task_table[index].stack_size = 0;
         task_table[index].user_stack_top = NULL;
         task_table[index].user_stack_size = 0;
+        task_table[index].user_stack_paddr = 0;
+        task_table[index].user_code_paddr = 0;
         task_table[index].wake_tick = 0;
         task_table[index].exit_status = 0;
         memset(&task_table[index].context, 0, sizeof(task_context_t));
@@ -359,14 +387,18 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
         return NULL;
     }
 
+    task->user_stack_paddr = user_stack_paddr;
+
     /* allocate a page in user address space for user code */
-    const uint32_t user_code_vaddr = 0x00100000; /* under identity-mapped range */
+    const uint32_t user_code_vaddr = 0x00400000; /* user-space entry address */
     uint32_t user_code_paddr = (uint32_t)pmm_alloc_frame();
     if (user_code_paddr == 0)
     {
         task->state = TASK_UNUSED;
         return NULL;
     }
+
+    task->user_code_paddr = user_code_paddr;
 
     /* Copy user code into a kernel-temporary mapping first, then map frame in user PD. */
     const uint32_t kernel_temp_vaddr = 0xC0800000;
@@ -384,8 +416,8 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
     vmm_unmap_page(kernel_temp_vaddr);
 
     /* map user stack and user code into this task's PD */
-    vmm_map_page_for_pdt(user_pdt, user_stack_vaddr, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
-    vmm_map_page_for_pdt(user_pdt, user_code_vaddr, user_code_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    vmm_map_page_for_pdt(user_pdt, user_stack_vaddr + PAGE_SIZE, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    vmm_map_page_for_pdt(user_pdt, user_code_vaddr, user_code_paddr, PAGE_PRESENT | PAGE_USER);
 
     task_create_context(task, entry_point);
     task->context.eip = user_code_vaddr;
