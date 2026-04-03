@@ -19,7 +19,7 @@ void user_main(void)
     const char message[] = "hello from user mode!\n";
 
     register uint32_t eax asm("eax") = SYS_WRITE;
-    register uint32_t ebx asm("ebx") = 1;
+    register uint32_t ebx asm("ebx") = 2; // Use serial output to see from qemu -serial stdio
     register const char *ecx asm("ecx") = message;
     register uint32_t edx asm("edx") = (uint32_t)(sizeof(message) - 1);
     asm volatile("int $0x80"

@@ -9,12 +9,23 @@
 #include <kernel/task.h>
 #include <kernel/log.h>
 
+extern struct tss_entry tss;
+
 static task_t task_table[TASK_MAX];
 static task_t *current_task = NULL;
 static task_t *ready_list_head = NULL;
 static task_t *ready_list_tail = NULL;
 static uint32_t next_pid = 1;
 static bool task_stack_slots[TASK_MAX];
+
+static void task_update_tss(void)
+{
+    if (current_task != NULL)
+    {
+        tss.esp0 = (uint32_t)current_task->stack_top;
+        tss.ss0 = KERNEL_DATA_SEG;
+    }
+}
 
 static void task_enqueue(task_t *task)
 {
@@ -70,6 +81,7 @@ static task_t *task_select_next(void)
     next->state = TASK_RUNNING;
     next->ticks = 0;
     current_task = next;
+    task_update_tss();
     return next;
 }
 
@@ -137,7 +149,7 @@ void task_save_current_context(void *cpu_state_ptr)
     }
     else
     {
-        context->esp = saved_esp + 20; /* resume at the original task stack pointer */
+        context->esp = saved_esp; /* resume at the original task stack pointer */
         context->ss = KERNEL_DATA_SEG;
     }
 }
@@ -383,4 +395,6 @@ void task_set_current(task_t *task)
         current_task->state = TASK_RUNNING;
         current_task->ticks = 0;
     }
+
+    task_update_tss();
 }

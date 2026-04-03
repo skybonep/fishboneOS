@@ -61,6 +61,13 @@ load_gdt:
 .flush:
     ret
 
+.global load_tss
+.type load_tss, @function
+load_tss:
+    mov 4(%esp), %ax     # Get the TSS selector from the stack
+    ltr %ax              # Load the Task Register
+    ret
+
 .global load_idt
 .type load_idt, @function
 load_idt:

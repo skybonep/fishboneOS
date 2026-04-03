@@ -46,6 +46,50 @@ struct gdt_ptr
 #define KERNEL_DATA_SEG 0x10
 #define USER_CODE_SEG 0x1B
 #define USER_DATA_SEG 0x23
+#define TSS_SEG 0x28
+
+/* Intel i386 Task State Segment (104 bytes) [11] */
+struct tss_entry
+{
+    unsigned short link;     /* Previous TSS link */
+    unsigned short link_rsv; /* Reserved */
+    unsigned int esp0;       /* Stack pointer for ring 0 */
+    unsigned short ss0;      /* Stack segment for ring 0 */
+    unsigned short ss0_rsv;  /* Reserved */
+    unsigned int esp1;       /* Stack pointer for ring 1 */
+    unsigned short ss1;      /* Stack segment for ring 1 */
+    unsigned short ss1_rsv;  /* Reserved */
+    unsigned int esp2;       /* Stack pointer for ring 2 */
+    unsigned short ss2;      /* Stack segment for ring 2 */
+    unsigned short ss2_rsv;  /* Reserved */
+    unsigned int cr3;        /* Page directory base register */
+    unsigned int eip;        /* Instruction pointer */
+    unsigned int eflags;     /* Flags register */
+    unsigned int eax;        /* General purpose registers */
+    unsigned int ecx;
+    unsigned int edx;
+    unsigned int ebx;
+    unsigned int esp;        /* Stack pointer */
+    unsigned int ebp;        /* Base pointer */
+    unsigned int esi;
+    unsigned int edi;
+    unsigned short es;       /* Segment registers */
+    unsigned short es_rsv;
+    unsigned short cs;
+    unsigned short cs_rsv;
+    unsigned short ss;
+    unsigned short ss_rsv;
+    unsigned short ds;
+    unsigned short ds_rsv;
+    unsigned short fs;
+    unsigned short fs_rsv;
+    unsigned short gs;
+    unsigned short gs_rsv;
+    unsigned short ldt;      /* Local descriptor table selector */
+    unsigned short ldt_rsv;
+    unsigned short trap;     /* Trap on task switch */
+    unsigned short iomap_base; /* I/O map base address */
+} __attribute__((packed));
 
 void gdt_init(void);
 
