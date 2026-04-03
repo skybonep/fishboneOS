@@ -145,9 +145,10 @@ static void kernel_dispatch_events(void)
 
 static void kernel_dispatch_periodic_services(void)
 {
-	if (kernel_ticks != kernel_last_service_tick)
+	uint32_t ticks = timer_get_ticks();
+	if (ticks != kernel_last_service_tick)
 	{
-		kernel_last_service_tick = kernel_ticks;
+		kernel_last_service_tick = ticks;
 		/* Placeholder for timer-driven services such as scheduling or housekeeping. */
 	}
 }

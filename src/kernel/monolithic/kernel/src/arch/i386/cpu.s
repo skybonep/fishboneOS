@@ -93,7 +93,7 @@ load_idt:
 .global interrupt_handler_\num
 interrupt_handler_\num:
     push $0                     # Push dummy error code
-    push \num                  # Push the interrupt number
+    push $\num                 # Push the interrupt number
     jmp common_interrupt_handler # Jump to the shared logic
 .endm
 
@@ -157,7 +157,7 @@ task_resume:
     mov 40(%edi), %eax          # Saved SS
     mov %eax, 16(%esp)
 
-    mov %eax, %ecx              # ECX = context ptr
+    mov %edi, %ecx              # ECX = context ptr
 
     mov 0(%ecx), %edi
     mov 4(%ecx), %esi
