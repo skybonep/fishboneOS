@@ -165,9 +165,9 @@ void task_save_current_context(void *cpu_state_ptr)
     }
     else
     {
-        context->eflags = return_frame[0];
+        context->eip = return_frame[0];
         context->cs = return_frame[1];
-        context->eip = return_frame[2];
+        context->eflags = return_frame[2];
 
         context->esp = saved_esp; /* resume at the original task stack pointer */
         context->ss = KERNEL_DATA_SEG;

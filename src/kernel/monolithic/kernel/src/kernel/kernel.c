@@ -23,6 +23,11 @@
 #include <kernel/task.h>
 #include <kernel/cpu.h>
 
+#include <kernel/menu.h>
+#include <kernel/menu_renderer.h>
+#include <kernel/menu_main.h>
+
+// Forward declarations
 extern void user_main(void);
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
@@ -123,6 +128,10 @@ static void boot_run_tests(void)
 static volatile uint32_t kernel_ticks = 0;
 static volatile uint32_t kernel_last_service_tick = 0;
 
+// Menu system state
+static bool menu_active = false;
+static Menu *current_menu = NULL;
+
 static void kernel_initialize_runtime(void)
 {
 	kernel_ticks = 0;
@@ -134,8 +143,30 @@ static void kernel_idle(void)
 	asm volatile("hlt");
 }
 
+static void menu_task_entry(void)
+{
+	while (menu_active)
+	{
+		if (menu_renderer_update(current_menu))
+		{
+			menu_active = false;
+			printk(LOG_INFO, "Menu system exited");
+		}
+	}
+
+	while (1)
+	{
+		asm volatile("hlt");
+	}
+}
+
 static void kernel_dispatch_events(void)
 {
+	if (menu_active)
+	{
+		return; // leave keyboard events for the menu renderer
+	}
+
 	while (keyboard_has_event())
 	{
 		char c = keyboard_get_event();
@@ -161,6 +192,16 @@ static void kernel_main_loop(void)
 	while (1)
 	{
 		kernel_dispatch_events();
+
+		if (menu_active && current_menu != NULL)
+		{
+			if (menu_renderer_update(current_menu))
+			{
+				menu_active = false;
+				printk(LOG_INFO, "Menu system exited from main loop");
+			}
+		}
+
 		kernel_dispatch_periodic_services();
 		kernel_idle();
 	}
@@ -203,37 +244,32 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
 	/* Confirm kernel is ready */
-	serial_write(SERIAL_COM1_BASE, "Kernel initialized, creating tasks\n");
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, entering single-threaded menu mode\n");
 
-	/* Create initial kernel tasks before starting timer-driven scheduling. */
-	task_t *idle_task = task_create(kernel_idle);
-	if (idle_task != NULL)
-	{
-		task_set_current(idle_task);
-		/* Switch the CPU to the idle task's own higher-half stack. */
-		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
-	}
-
-	// task_create(kernel_worker);
-	// task_t *worker_task_2 = task_create(kernel_worker);
-	if (task_create_user(user_main, user_stack_top, user_stack_size) == NULL)
-	{
-		printk(LOG_ERROR, "Failed to create user task");
-	}
-	// if (worker_task_2 == NULL)
+	/* Single-threaded menu mode: do not create tasks yet */
+	// task_t *idle_task = task_create(kernel_idle);
+	// if (idle_task != NULL)
 	// {
-	// 	printk(LOG_ERROR, "Failed to create worker task 2");
+	// 	task_set_current(idle_task);
+	// 	/* Switch the CPU to the idle task's own higher-half stack. */
+	// 	asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
+	// }
+
+	// task_t *menu_task = task_create(menu_task_entry);
+	// if (menu_task == NULL)
+	// {
+	// 	printk(LOG_ERROR, "Failed to create menu task");
 	// }
 
 	/* Confirm kernel is ready */
-	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting scheduler\n");
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting menu\n");
 
 #ifdef DEBUG
 	boot_run_tests();
 #endif
 
 	/* Initialize periodic timer before enabling interrupts */
-	timer_init(100);
+	// timer_init(100);
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
@@ -247,6 +283,18 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 #endif
 
 	multiboot_info(multiboot_magic, mbinfo);
+
+	// Initialize the menu system
+	current_menu = get_main_menu();
+	if (current_menu != NULL)
+	{
+		printk(LOG_INFO, "Starting menu system...");
+		menu_active = true;
+	}
+	else
+	{
+		printk(LOG_ERROR, "Failed to get main menu");
+	}
 
 	kernel_main_loop();
 }

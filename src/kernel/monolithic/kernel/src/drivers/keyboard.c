@@ -1,6 +1,8 @@
 #include <stdbool.h>
 #include <drivers/keyboard.h>
 #include <kernel/io.h>
+#include <kernel/log.h>
+#include <stddef.h>
 
 #define KBD_DATA_PORT 0x60
 #define KBD_EVENT_QUEUE_SIZE 32
@@ -23,6 +25,15 @@ static unsigned int keyboard_count = 0;
 
 char translate_scan_code(unsigned char scan_code)
 {
+    static bool extended_prefix = false;
+
+    /* Handle extended key prefix first, such as arrow keys. */
+    if (scan_code == 0xE0)
+    {
+        extended_prefix = true;
+        return 0;
+    }
+
     /*
      * A scan code represents both presses and releases [1].
      * Typically, if the 7th bit is set (scan_code >= 0x80), it is a "break" (release) code.
@@ -30,11 +41,47 @@ char translate_scan_code(unsigned char scan_code)
      */
     if (scan_code & 0x80)
     {
+        extended_prefix = false;
         return 0;
     }
 
+    if (extended_prefix)
+    {
+        extended_prefix = false;
+        switch (scan_code)
+        {
+        case 0x48:
+            return KEY_UP;
+        case 0x50:
+            return KEY_DOWN;
+        case 0x4B:
+            return KEY_LEFT;
+        case 0x4D:
+            return KEY_RIGHT;
+        default:
+            return 0;
+        }
+    }
+
+    /* Some QEMU keyboard injection paths may send extended arrow key codes without preserving the prefix state.
+     * Fall back to arrow mapping for the common scan codes. */
+    switch (scan_code)
+    {
+    case 0x48:
+        return KEY_UP;
+    case 0x50:
+        return KEY_DOWN;
+    case 0x4B:
+        return KEY_LEFT;
+    case 0x4D:
+        return KEY_RIGHT;
+    default:
+        break;
+    }
+
     /* Map the "make" code to ASCII using our table */
-    if (scan_code < 128)
+    size_t table_size = sizeof(kbd_us) / sizeof(kbd_us[0]);
+    if (scan_code < table_size)
     {
         return kbd_us[scan_code];
     }

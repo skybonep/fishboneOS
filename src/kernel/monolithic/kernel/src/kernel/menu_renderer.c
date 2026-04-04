@@ -4,7 +4,9 @@
 
 #include <kernel/tty.h>
 #include <kernel/menu.h>
+#include <kernel/log.h>
 #include <drivers/keyboard.h>
+#include <drivers/serial.h>
 #include "../arch/i386/vga.h"
 
 // Forward declarations
@@ -21,21 +23,21 @@ static char get_key_input(void)
     return 0;
 }
 
-void menu_renderer_run(Menu *menu)
+bool menu_renderer_update(Menu *menu)
 {
-    while (true)
+    if (menu == NULL)
     {
-        menu_renderer_draw(menu);
-
-        // Simple delay - in real implementation, this would be event-driven
-        for (volatile int i = 0; i < 100000; i++)
-            ;
-
-        if (menu_renderer_handle_input(menu))
-        {
-            break; // Exit menu
-        }
+        return true;
     }
+
+    menu_renderer_draw(menu);
+
+    if (menu_renderer_handle_input(menu))
+    {
+        return true; // Exit menu
+    }
+
+    return false;
 }
 
 static void menu_renderer_draw(const Menu *menu)
@@ -110,23 +112,22 @@ static bool menu_renderer_handle_input(Menu *menu)
         return false; // No input
     }
 
-    // TODO: Replace with proper key code detection
-    // For now, use placeholder keys
-    if (key == 'w' || key == 'W')
-    { // Up
+    // Support both arrow keys and WASD navigation.
+    if (key == KEY_UP || key == KEY_LEFT || key == 'w' || key == 'W' || key == 'a' || key == 'A')
+    { // Up/Left
         if (menu->current_selection > 0)
         {
             menu->current_selection--;
         }
     }
-    else if (key == 's' || key == 'S')
-    { // Down
+    else if (key == KEY_DOWN || key == KEY_RIGHT || key == 's' || key == 'S' || key == 'd' || key == 'D')
+    { // Down/Right
         if (menu->current_selection < menu->item_count - 1)
         {
             menu->current_selection++;
         }
     }
-    else if (key == '\n' || key == '\r')
+    else if (key == KEY_ENTER || key == '\n' || key == '\r')
     { // Enter
         const MenuItem *item = &menu->items[menu->current_selection];
         if (item->callback != NULL)
@@ -135,7 +136,7 @@ static bool menu_renderer_handle_input(Menu *menu)
         }
         // TODO: Handle submenu navigation
     }
-    else if (key == 27)
+    else if (key == KEY_ESC || key == 27)
     {                // ESC
         return true; // Exit menu
     }

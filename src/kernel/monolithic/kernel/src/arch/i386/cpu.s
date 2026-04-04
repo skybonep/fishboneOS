@@ -97,6 +97,13 @@ interrupt_handler_\num:
     jmp common_interrupt_handler # Jump to the shared logic
 .endm
 
+.macro error_code_interrupt_handler num
+.global interrupt_handler_\num
+interrupt_handler_\num:
+    push $\num                 # Push the interrupt number
+    jmp common_interrupt_handler # Jump to the shared logic
+.endm
+
 # Define the specific handler for the timer (32)
 no_error_code_interrupt_handler 32
 
@@ -104,7 +111,7 @@ no_error_code_interrupt_handler 32
 no_error_code_interrupt_handler 33
 
 # Define the page fault handler (14)
-no_error_code_interrupt_handler 14
+error_code_interrupt_handler 14
 
 # Define the syscall handler for INT 0x80 (128)
 no_error_code_interrupt_handler 128

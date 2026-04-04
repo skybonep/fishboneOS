@@ -286,5 +286,6 @@ static void simple_heap_test(void)
 // Public interface
 Menu *get_main_menu(void)
 {
+    terminal_writestring("get_main_menu() called\n");
     return &main_menu;
 }

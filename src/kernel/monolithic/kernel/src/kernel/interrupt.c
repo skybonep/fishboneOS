@@ -127,8 +127,8 @@ void *interrupt_handler(void *cpu_state_ptr)
     if (interrupt == 32)
     {
         timer_handle_interrupt();
-        printk(LOG_INFO, "timer interrupt tick=%u", timer_get_ticks());
-        next_context = task_tick();
+        /* Silence timer log spam while debugging keyboard input */
+        next_context = NULL;
     }
     else if (interrupt == 33)
     {
