@@ -143,20 +143,22 @@ static void kernel_idle(void)
 	asm volatile("hlt");
 }
 
+// Note: This function is currently unused but kept for potential future menu task implementation
+static void menu_task_entry(void) __attribute__((unused));
 static void menu_task_entry(void)
 {
 	while (menu_active)
 	{
-		if (menu_renderer_update(current_menu))
+		Menu *next_menu = menu_renderer_update(current_menu);
+		if (next_menu == NULL)
 		{
 			menu_active = false;
 			printk(LOG_INFO, "Menu system exited");
 		}
-	}
-
-	while (1)
-	{
-		asm volatile("hlt");
+		else
+		{
+			current_menu = next_menu;
+		}
 	}
 }
 
@@ -195,10 +197,15 @@ static void kernel_main_loop(void)
 
 		if (menu_active && current_menu != NULL)
 		{
-			if (menu_renderer_update(current_menu))
+			Menu *next_menu = menu_renderer_update(current_menu);
+			if (next_menu == NULL)
 			{
 				menu_active = false;
 				printk(LOG_INFO, "Menu system exited from main loop");
+			}
+			else
+			{
+				current_menu = next_menu;
 			}
 		}
 
@@ -235,9 +242,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	printk(LOG_INFO, "kernel_main: paging initialized, kernel CR3=0x%08x", read_cr3());
 
 	/* Prepare user stack parameters (allocation will be per-user-address-space). */
-	uint32_t user_stack_vaddr = 0xBFFFE000; // Top of user space minus two pages, page aligned (with guard page)
-	const uint32_t user_stack_size = 2 * PAGE_SIZE;
-	uint32_t *user_stack_top = (uint32_t *)(user_stack_vaddr + user_stack_size);
+	uint32_t user_stack_vaddr __attribute__((unused)) = 0xBFFFE000; // Top of user space minus two pages, page aligned (with guard page)
+	const uint32_t user_stack_size __attribute__((unused)) = 2 * PAGE_SIZE;
 
 	heap_init();
 	task_init();

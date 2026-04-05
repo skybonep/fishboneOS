@@ -11,7 +11,7 @@
 
 // Forward declarations
 static void menu_renderer_draw(const Menu *menu);
-static bool menu_renderer_handle_input(Menu *menu);
+static Menu *menu_renderer_handle_input(Menu *menu);
 
 // Temporary key input function - will be replaced with proper key code handling
 static char get_key_input(void)
@@ -23,21 +23,17 @@ static char get_key_input(void)
     return 0;
 }
 
-bool menu_renderer_update(Menu *menu)
+Menu *menu_renderer_update(Menu *menu)
 {
     if (menu == NULL)
     {
-        return true;
+        return NULL;
     }
 
     menu_renderer_draw(menu);
 
-    if (menu_renderer_handle_input(menu))
-    {
-        return true; // Exit menu
-    }
-
-    return false;
+    Menu *next_menu = menu_renderer_handle_input(menu);
+    return next_menu ? next_menu : menu;
 }
 
 static void menu_renderer_draw(const Menu *menu)
@@ -103,7 +99,7 @@ static void menu_renderer_draw(const Menu *menu)
     terminal_writestring("Press ENTER to select, UP/DOWN to navigate, ESC to exit\n");
 }
 
-static bool menu_renderer_handle_input(Menu *menu)
+static Menu *menu_renderer_handle_input(Menu *menu)
 {
     char key = get_key_input();
 
@@ -129,17 +125,27 @@ static bool menu_renderer_handle_input(Menu *menu)
     }
     else if (key == KEY_ENTER || key == '\n' || key == '\r')
     { // Enter
-        const MenuItem *item = &menu->items[menu->current_selection];
+        MenuItem *item = &menu->items[menu->current_selection];
+        if (item->submenu != NULL)
+        {
+            item->submenu->current_selection = 0;
+            return item->submenu;
+        }
+
         if (item->callback != NULL)
         {
             item->callback();
         }
-        // TODO: Handle submenu navigation
+        return menu;
     }
     else if (key == KEY_ESC || key == 27)
-    {                // ESC
-        return true; // Exit menu
+    { // ESC
+        if (menu->parent != NULL)
+        {
+            return menu->parent;
+        }
+        return NULL; // Exit the root menu
     }
 
-    return false;
+    return menu;
 }

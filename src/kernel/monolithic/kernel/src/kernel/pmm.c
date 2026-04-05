@@ -209,3 +209,31 @@ void pmm_free_frame(void *addr)
     uint32_t frame_idx = (uint32_t)addr / PAGE_SIZE;
     pmm_clear_bit(frame_idx); // Mark as FREE (0)
 }
+
+uint32_t pmm_get_total_frames(void)
+{
+    return total_frames;
+}
+
+uint32_t pmm_get_free_frames(void)
+{
+    uint32_t free_frames = 0;
+    for (uint32_t i = 0; i < total_frames; i++)
+    {
+        if (!pmm_test_bit(i))
+        {
+            free_frames++;
+        }
+    }
+    return free_frames;
+}
+
+uint32_t pmm_get_total_memory_kb(void)
+{
+    return (total_frames * PAGE_SIZE) / 1024;
+}
+
+uint32_t pmm_get_free_memory_kb(void)
+{
+    return (pmm_get_free_frames() * PAGE_SIZE) / 1024;
+}

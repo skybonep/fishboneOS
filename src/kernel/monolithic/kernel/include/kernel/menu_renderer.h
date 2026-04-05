@@ -4,7 +4,8 @@
 #include <kernel/menu.h>
 
 // Update the menu renderer for one frame
-// Returns true if the menu should exit, false otherwise
-bool menu_renderer_update(Menu *menu);
+// Returns the active menu after the update.
+// Returns NULL if the menu system should exit.
+Menu *menu_renderer_update(Menu *menu);
 
 #endif
