@@ -87,7 +87,7 @@ static task_t *task_select_next(void)
     next->ticks = 0;
     current_task = next;
 
-    printk(LOG_INFO, "task_select_next: switch to pid=%u type=%u pd=0x%08x", next->pid, next->type, next->page_directory_phys);
+    // printk(LOG_INFO, "task_select_next: switch to pid=%u type=%u pd=0x%08x", next->pid, next->type, next->page_directory_phys);
 
     task_update_tss();
 

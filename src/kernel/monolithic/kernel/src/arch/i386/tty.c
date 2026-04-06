@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <kernel/tty.h>
+#include <drivers/serial.h>
 
 #include "vga.h"
 
@@ -68,7 +69,7 @@ void terminal_putchar(char c)
 		return;
 	}
 
-	unsigned char uc = c;
+	char uc = c;
 	terminal_putentryat(uc, terminal_color, terminal_column, terminal_row);
 	if (++terminal_column == VGA_WIDTH)
 	{
@@ -76,6 +77,10 @@ void terminal_putchar(char c)
 		if (++terminal_row == VGA_HEIGHT)
 			terminal_row = 0;
 	}
+
+	// Also write to serial for debugging/menu output
+	char buf[2] = {uc, '\0'};
+	serial_write(SERIAL_COM1_BASE, buf);
 }
 
 void terminal_write(const char *data, size_t size)

@@ -133,11 +133,6 @@ static void kernel_initialize_runtime(void)
 	kernel_last_service_tick = 0;
 }
 
-static void kernel_idle(void)
-{
-	asm volatile("hlt");
-}
-
 static void kernel_dispatch_periodic_services(void)
 {
 	uint32_t ticks = timer_get_ticks();
@@ -148,7 +143,7 @@ static void kernel_dispatch_periodic_services(void)
 	}
 }
 
-static void kernel_main_loop(void)
+static void kernel_idle(void)
 {
 	uint32_t frame_counter = 0;
 	uint32_t last_frame_tick = 0;
@@ -188,7 +183,9 @@ static void kernel_main_loop(void)
 		}
 
 		kernel_dispatch_periodic_services();
-		kernel_idle();
+
+		// Yield to allow other tasks to run
+		task_yield();
 	}
 }
 
@@ -230,22 +227,16 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
 	/* Confirm kernel is ready */
-	serial_write(SERIAL_COM1_BASE, "Kernel initialized, entering single-threaded menu mode\n");
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, entering multi-tasking mode\n");
 
-	/* Single-threaded menu mode: do not create tasks yet */
-	// task_t *idle_task = task_create(kernel_idle);
-	// if (idle_task != NULL)
-	// {
-	// 	task_set_current(idle_task);
-	// 	/* Switch the CPU to the idle task's own higher-half stack. */
-	// 	asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
-	// }
-
-	// task_t *menu_task = task_create(menu_task_entry);
-	// if (menu_task == NULL)
-	// {
-	// 	printk(LOG_ERROR, "Failed to create menu task");
-	// }
+	/* Multi-tasking mode: create idle task */
+	task_t *idle_task = task_create(kernel_idle);
+	if (idle_task != NULL)
+	{
+		task_set_current(idle_task);
+		/* Switch the CPU to the idle task's own higher-half stack. */
+		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
+	}
 
 	/* Confirm kernel is ready */
 	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting menu\n");
@@ -270,5 +261,6 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	multiboot_info(multiboot_magic, mbinfo);
 
-	kernel_main_loop();
+	/* Start the idle task (menu system) */
+	kernel_idle();
 }

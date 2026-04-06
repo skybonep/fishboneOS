@@ -127,8 +127,8 @@ void *interrupt_handler(void *cpu_state_ptr)
     if (interrupt == 32)
     {
         timer_handle_interrupt();
-        /* Cooperative multitasking: no preemptive task switching on timer tick */
-        next_context = NULL;
+        /* Preemptive multitasking: switch tasks on timer tick */
+        next_context = task_tick();
     }
     else if (interrupt == 33)
     {

@@ -22,6 +22,10 @@
 static void menu_boot_os(void);
 static void menu_memory_test(void);
 static void menu_shutdown(void);
+static void menu_run_hello_world(void);
+
+// Forward declaration for user task function
+extern void hello_world_main(void);
 
 // System info submenu callbacks
 static void menu_cpu_details(void);
@@ -57,6 +61,7 @@ static MenuItem main_menu_items[] = {
     {"Boot OS", menu_boot_os, NULL, true},
     {"System Information", NULL, &system_info_menu, true},
     {"List Tasks", menu_list_tasks, NULL, true},
+    {"Run Hello World Task", menu_run_hello_world, NULL, true},
     {"Memory Test", menu_memory_test, NULL, true},
     {"Shutdown", menu_shutdown, NULL, true}};
 
@@ -71,7 +76,7 @@ static MenuItem system_info_items[] = {
 static Menu main_menu = {
     .title = "Main Menu",
     .items = main_menu_items,
-    .item_count = 5,
+    .item_count = 6,
     .current_selection = 0,
     .parent = NULL};
 
@@ -114,6 +119,34 @@ static void menu_shutdown(void)
     {
         asm volatile("hlt");
     }
+}
+
+static void menu_run_hello_world(void)
+{
+    terminal_init();
+    terminal_writestring("==================== Hello World Task =====================\n\n");
+    terminal_writestring("Creating user-mode Hello World task...\n");
+
+    // Create the user task with proper user stack
+    const uint32_t user_stack_top = 0xBFFFE000; // Top of user space minus two pages, page aligned
+    const uint32_t user_stack_size = 2 * 4096;   // 2 pages for stack
+
+    task_t *hello_task = task_create_user(hello_world_main, (uint32_t *)user_stack_top, user_stack_size);
+    if (hello_task == NULL)
+    {
+        terminal_writestring("ERROR: Failed to create Hello World task!\n");
+    }
+    else
+    {
+        terminal_writestring("Task created successfully. Check serial output for Hello World message.\n");
+        terminal_writestring("Task PID: ");
+        char pid_buf[8];
+        itoa(hello_task->pid, pid_buf, 10);
+        terminal_writestring(pid_buf);
+        terminal_writestring("\n");
+    }
+
+    terminal_writestring("\nPress ESC to return to menu...");
 }
 
 // System info submenu callbacks
@@ -761,6 +794,5 @@ static void menu_list_tasks(void)
 // Public interface
 Menu *get_main_menu(void)
 {
-    terminal_writestring("get_main_menu() called\n");
     return &main_menu;
 }
