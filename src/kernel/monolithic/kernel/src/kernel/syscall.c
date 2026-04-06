@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <drivers/keyboard.h>
 #include <drivers/serial.h>
 #include <drivers/timer.h>
 #include <kernel/malloc.h>
@@ -95,11 +96,42 @@ int sys_sleep(uint32_t ms)
     return 0;
 }
 
+int sys_read(int fd)
+{
+    // Currently only support fd=0 (keyboard input)
+    if (fd != 0)
+    {
+        return -1;
+    }
+
+    // Block until a keyboard event is available
+    while (!keyboard_has_event())
+    {
+        // Yield CPU while waiting for input
+        task_t *current = task_get_current();
+        if (current != NULL)
+        {
+            current->state = TASK_WAITING;
+            task_schedule();
+        }
+    }
+
+    // Return the keyboard character
+    return (int)keyboard_get_event();
+}
+
+int sys_yield(void)
+{
+    // Voluntary yield: enqueue current task and switch to next
+    return 0;
+}
+
 static task_context_t *syscall_handle_write(uint32_t *saved_regs)
 {
     int fd = (int)syscall_get_u32_arg(saved_regs, 0);
     const char *buf = (const char *)(uintptr_t)syscall_get_u32_arg(saved_regs, 1);
     uint32_t len = syscall_get_u32_arg(saved_regs, 2);
+    printk(LOG_DEBUG, "syscall_write: fd=%d len=%u", fd, len);
     int result = sys_write(fd, buf, len);
     syscall_set_return_value(saved_regs, (uint32_t)result);
     return NULL;
@@ -128,6 +160,21 @@ static task_context_t *syscall_handle_sleep(uint32_t *saved_regs)
     return task_schedule();
 }
 
+static task_context_t *syscall_handle_read(uint32_t *saved_regs)
+{
+    int fd = (int)syscall_get_u32_arg(saved_regs, 0);
+    int result = sys_read(fd);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
+static task_context_t *syscall_handle_yield(uint32_t *saved_regs)
+{
+    int result = sys_yield();
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return task_yield();
+}
+
 task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs)
 {
     if (interrupt != 128 || saved_regs == NULL)
@@ -136,6 +183,7 @@ task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs)
     }
 
     uint32_t call_number = saved_regs[7];
+    printk(LOG_DEBUG, "syscall_dispatch: call_number=%u", call_number);
     switch (call_number)
     {
     case SYS_WRITE:
@@ -146,6 +194,10 @@ task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs)
         return syscall_handle_alloc(saved_regs);
     case SYS_SLEEP:
         return syscall_handle_sleep(saved_regs);
+    case SYS_READ:
+        return syscall_handle_read(saved_regs);
+    case SYS_YIELD:
+        return syscall_handle_yield(saved_regs);
     default:
         syscall_set_return_value(saved_regs, (uint32_t)-1);
         return NULL;

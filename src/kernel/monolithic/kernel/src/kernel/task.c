@@ -375,6 +375,10 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
     }
 
     task->page_directory_phys = user_pdt;
+
+    // Map VGA memory for user access
+    vmm_map_page_for_pdt(user_pdt, 0xB8000, 0xB8000, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
     task->type = TASK_TYPE_USER;
     task->user_stack_top = user_stack_top;
     task->user_stack_size = user_stack_size;
@@ -433,6 +437,23 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
 }
 
 task_context_t *task_schedule(void)
+{
+    if (current_task != NULL && current_task->state == TASK_RUNNING)
+    {
+        current_task->state = TASK_READY;
+        task_enqueue(current_task);
+    }
+
+    task_t *next = task_select_next();
+    if (next == NULL)
+    {
+        return NULL;
+    }
+
+    return &next->context;
+}
+
+task_context_t *task_yield(void)
 {
     if (current_task != NULL && current_task->state == TASK_RUNNING)
     {
@@ -515,4 +536,11 @@ void task_set_current(task_t *task)
     {
         load_cr3(vmm_get_kernel_pdt_phys());
     }
+}
+
+task_t *task_get_at_index(uint32_t index)
+{
+    if (index >= TASK_MAX)
+        return NULL;
+    return &task_table[index];
 }

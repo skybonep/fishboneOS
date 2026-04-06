@@ -127,7 +127,7 @@ void *interrupt_handler(void *cpu_state_ptr)
     if (interrupt == 32)
     {
         timer_handle_interrupt();
-        /* Silence timer log spam while debugging keyboard input */
+        /* Cooperative multitasking: no preemptive task switching on timer tick */
         next_context = NULL;
     }
     else if (interrupt == 33)

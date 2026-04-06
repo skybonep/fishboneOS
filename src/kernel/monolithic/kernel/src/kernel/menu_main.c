@@ -28,6 +28,7 @@ static void menu_cpu_details(void);
 static void menu_memory_map(void);
 static void menu_interrupt_table(void);
 static void menu_device_list(void);
+static void menu_list_tasks(void);
 
 // Info display functions
 static void display_cpu_info(void);
@@ -55,6 +56,7 @@ static Menu system_info_menu;
 static MenuItem main_menu_items[] = {
     {"Boot OS", menu_boot_os, NULL, true},
     {"System Information", NULL, &system_info_menu, true},
+    {"List Tasks", menu_list_tasks, NULL, true},
     {"Memory Test", menu_memory_test, NULL, true},
     {"Shutdown", menu_shutdown, NULL, true}};
 
@@ -696,6 +698,59 @@ static void simple_heap_test(void)
     {
         terminal_writestring("✗ Memory allocation failed\n");
     }
+}
+
+static void menu_list_tasks(void)
+{
+    terminal_init();
+    terminal_writestring("==================== TASK LIST ====================\n\n");
+    terminal_writestring("PID  | Type   | State    | Quantum | Ticks\n");
+    terminal_writestring("-----|--------|----------|---------|-------\n");
+    
+    // Iterate through task table
+    for (uint32_t i = 0; i < TASK_MAX; i++)
+    {
+        task_t *task = task_get_at_index(i);
+        
+        // Skip unused task slots
+        if (task == NULL || task->state == TASK_UNUSED)
+            continue;
+        
+        // Get state string
+        const char *state_str = "?????";
+        switch (task->state)
+        {
+            case TASK_UNUSED:  state_str = "Unused"; break;
+            case TASK_READY:   state_str = "Ready "; break;
+            case TASK_RUNNING: state_str = "Run   "; break;
+            case TASK_WAITING: state_str = "Wait  "; break;
+            case TASK_ZOMBIE:  state_str = "Zombie"; break;
+        }
+        
+        // Get type string
+        const char *type_str = (task->type == TASK_TYPE_USER) ? "User  " : "Kernel";
+        
+        // Format line
+        char pid_buf[8], quantum_buf[8], ticks_buf[8];
+        itoa(task->pid, pid_buf, 10);
+        itoa(task->quantum, quantum_buf, 10);
+        itoa(task->ticks, ticks_buf, 10);
+        
+        terminal_writestring(" ");
+        terminal_writestring(pid_buf);
+        terminal_writestring("   | ");
+        terminal_writestring(type_str);
+        terminal_writestring(" | ");
+        terminal_writestring(state_str);
+        terminal_writestring(" | ");
+        terminal_writestring(quantum_buf);
+        terminal_writestring("      | ");
+        terminal_writestring(ticks_buf);
+        terminal_writestring("\n");
+    }
+    
+    terminal_writestring("\nPress any key to return...");
+    wait_for_keypress();
 }
 
 // Public interface

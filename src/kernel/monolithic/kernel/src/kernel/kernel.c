@@ -28,7 +28,6 @@
 #include <kernel/menu_main.h>
 
 // Forward declarations
-extern void user_main(void);
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
@@ -128,10 +127,6 @@ static void boot_run_tests(void)
 static volatile uint32_t kernel_ticks = 0;
 static volatile uint32_t kernel_last_service_tick = 0;
 
-// Menu system state
-static bool menu_active = false;
-static Menu *current_menu = NULL;
-
 static void kernel_initialize_runtime(void)
 {
 	kernel_ticks = 0;
@@ -141,39 +136,6 @@ static void kernel_initialize_runtime(void)
 static void kernel_idle(void)
 {
 	asm volatile("hlt");
-}
-
-// Note: This function is currently unused but kept for potential future menu task implementation
-static void menu_task_entry(void) __attribute__((unused));
-static void menu_task_entry(void)
-{
-	while (menu_active)
-	{
-		Menu *next_menu = menu_renderer_update(current_menu);
-		if (next_menu == NULL)
-		{
-			menu_active = false;
-			printk(LOG_INFO, "Menu system exited");
-		}
-		else
-		{
-			current_menu = next_menu;
-		}
-	}
-}
-
-static void kernel_dispatch_events(void)
-{
-	if (menu_active)
-	{
-		return; // leave keyboard events for the menu renderer
-	}
-
-	while (keyboard_has_event())
-	{
-		char c = keyboard_get_event();
-		terminal_putchar(c);
-	}
 }
 
 static void kernel_dispatch_periodic_services(void)
@@ -189,23 +151,28 @@ static void kernel_dispatch_periodic_services(void)
 static void kernel_main_loop(void)
 {
 	kernel_initialize_runtime();
-	printk(LOG_INFO, "Kernel runtime: entering main loop");
+	printk(LOG_INFO, "Kernel runtime: entering main loop with menu renderer");
+
+	Menu *menu = get_main_menu();
+	if (menu == NULL)
+	{
+		printk(LOG_ERROR, "Failed to get main menu");
+		while (1)
+			asm volatile("hlt");
+	}
 
 	while (1)
 	{
-		kernel_dispatch_events();
+		// Update menu renderer for one frame
+		menu = menu_renderer_update(menu);
 
-		if (menu_active && current_menu != NULL)
+		// If menu returns NULL, the menu system has exited
+		if (menu == NULL)
 		{
-			Menu *next_menu = menu_renderer_update(current_menu);
-			if (next_menu == NULL)
+			printk(LOG_INFO, "Menu exited, shutting down");
+			while (1)
 			{
-				menu_active = false;
-				printk(LOG_INFO, "Menu system exited from main loop");
-			}
-			else
-			{
-				current_menu = next_menu;
+				asm volatile("hlt");
 			}
 		}
 
@@ -216,6 +183,8 @@ static void kernel_main_loop(void)
 
 void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 {
+	serial_write(SERIAL_COM1_BASE, "Kernel main started\n");
+
 	gdt_init();
 
 	idt_init();
@@ -275,7 +244,7 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 #endif
 
 	/* Initialize periodic timer before enabling interrupts */
-	// timer_init(100);
+	timer_init(100);
 
 	/* Enable interrupts after PIC setup */
 	asm volatile("sti");
@@ -289,18 +258,6 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 #endif
 
 	multiboot_info(multiboot_magic, mbinfo);
-
-	// Initialize the menu system
-	current_menu = get_main_menu();
-	if (current_menu != NULL)
-	{
-		printk(LOG_INFO, "Starting menu system...");
-		menu_active = true;
-	}
-	else
-	{
-		printk(LOG_ERROR, "Failed to get main menu");
-	}
 
 	kernel_main_loop();
 }
