@@ -71,7 +71,7 @@ static MenuItem system_info_items[] = {
 static Menu main_menu = {
     .title = "Main Menu",
     .items = main_menu_items,
-    .item_count = 4,
+    .item_count = 5,
     .current_selection = 0,
     .parent = NULL};
 
