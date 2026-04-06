@@ -98,8 +98,7 @@ static void menu_memory_test(void)
 
     simple_heap_test();
 
-    terminal_writestring("\nPress any key to return to menu...");
-    wait_for_keypress();
+    terminal_writestring("\nPress ESC to return to menu...");
 }
 
 static void menu_shutdown(void)
@@ -293,8 +292,7 @@ static void display_cpu_info(void)
     terminal_writestring(buf);
     terminal_writestring(" MB\n");
 
-    terminal_writestring("\nPress any key to return...");
-    wait_for_keypress();
+    terminal_writestring("\nPress ESC to return...");
 }
 
 static void display_memory_info(void)
@@ -486,8 +484,7 @@ static void display_interrupt_info(void)
     terminal_writestring("- Master PIC: IRQs 0-7 -> INTs 32-39\n");
     terminal_writestring("- Slave PIC: IRQs 8-15 -> INTs 40-47\n");
 
-    terminal_writestring("\nPress any key to return...");
-    wait_for_keypress();
+    terminal_writestring("\nPress ESC to return...");
 }
 
 static void display_device_info(void)
@@ -561,8 +558,7 @@ static void display_device_info(void)
     terminal_writestring(buf);
     terminal_writestring(": VGA Text Buffer\n");
 
-    terminal_writestring("\nPress any key to return...");
-    wait_for_keypress();
+    terminal_writestring("\nPress ESC to return...\n");
 }
 
 static void wait_for_keypress(void);
@@ -706,36 +702,46 @@ static void menu_list_tasks(void)
     terminal_writestring("==================== TASK LIST ====================\n\n");
     terminal_writestring("PID  | Type   | State    | Quantum | Ticks\n");
     terminal_writestring("-----|--------|----------|---------|-------\n");
-    
+
     // Iterate through task table
     for (uint32_t i = 0; i < TASK_MAX; i++)
     {
         task_t *task = task_get_at_index(i);
-        
+
         // Skip unused task slots
         if (task == NULL || task->state == TASK_UNUSED)
             continue;
-        
+
         // Get state string
         const char *state_str = "?????";
         switch (task->state)
         {
-            case TASK_UNUSED:  state_str = "Unused"; break;
-            case TASK_READY:   state_str = "Ready "; break;
-            case TASK_RUNNING: state_str = "Run   "; break;
-            case TASK_WAITING: state_str = "Wait  "; break;
-            case TASK_ZOMBIE:  state_str = "Zombie"; break;
+        case TASK_UNUSED:
+            state_str = "Unused";
+            break;
+        case TASK_READY:
+            state_str = "Ready ";
+            break;
+        case TASK_RUNNING:
+            state_str = "Run   ";
+            break;
+        case TASK_WAITING:
+            state_str = "Wait  ";
+            break;
+        case TASK_ZOMBIE:
+            state_str = "Zombie";
+            break;
         }
-        
+
         // Get type string
         const char *type_str = (task->type == TASK_TYPE_USER) ? "User  " : "Kernel";
-        
+
         // Format line
         char pid_buf[8], quantum_buf[8], ticks_buf[8];
         itoa(task->pid, pid_buf, 10);
         itoa(task->quantum, quantum_buf, 10);
         itoa(task->ticks, ticks_buf, 10);
-        
+
         terminal_writestring(" ");
         terminal_writestring(pid_buf);
         terminal_writestring("   | ");
@@ -748,9 +754,8 @@ static void menu_list_tasks(void)
         terminal_writestring(ticks_buf);
         terminal_writestring("\n");
     }
-    
-    terminal_writestring("\nPress any key to return...");
-    wait_for_keypress();
+
+    terminal_writestring("\nPress ESC to return...\n");
 }
 
 // Public interface

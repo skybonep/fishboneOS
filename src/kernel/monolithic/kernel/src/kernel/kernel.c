@@ -150,6 +150,10 @@ static void kernel_dispatch_periodic_services(void)
 
 static void kernel_main_loop(void)
 {
+	uint32_t frame_counter = 0;
+	uint32_t last_frame_tick = 0;
+	const uint32_t FRAME_DELAY_TICKS = 2; // ~20 FPS at 100Hz timer (allows rendering only every ~2 ticks)
+
 	kernel_initialize_runtime();
 	printk(LOG_INFO, "Kernel runtime: entering main loop with menu renderer");
 
@@ -163,8 +167,15 @@ static void kernel_main_loop(void)
 
 	while (1)
 	{
-		// Update menu renderer for one frame
-		menu = menu_renderer_update(menu);
+		// Implement frame rate limiting to reduce flicker
+		uint32_t current_tick = timer_get_ticks();
+		if (current_tick - last_frame_tick >= FRAME_DELAY_TICKS)
+		{
+			// Update menu renderer for one frame
+			menu = menu_renderer_update(menu);
+			last_frame_tick = current_tick;
+			frame_counter++;
+		}
 
 		// If menu returns NULL, the menu system has exited
 		if (menu == NULL)

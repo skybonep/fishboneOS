@@ -13,6 +13,12 @@
 static void menu_renderer_draw(const Menu *menu);
 static Menu *menu_renderer_handle_input(Menu *menu);
 
+// State tracking for optimized rendering
+static const Menu *last_menu = NULL;
+static size_t last_selection = 0;
+static bool needs_redraw = true;
+static bool callback_display_active = false; // Track if a callback result is being displayed
+
 // Temporary key input function - will be replaced with proper key code handling
 static char get_key_input(void)
 {
@@ -30,9 +36,24 @@ Menu *menu_renderer_update(Menu *menu)
         return NULL;
     }
 
-    menu_renderer_draw(menu);
+    // Only redraw if menu changed or selection changed
+    if (needs_redraw || last_menu != menu || last_selection != menu->current_selection)
+    {
+        menu_renderer_draw(menu);
+        last_menu = menu;
+        last_selection = menu->current_selection;
+        needs_redraw = false;
+    }
 
     Menu *next_menu = menu_renderer_handle_input(menu);
+
+    // If menu or selection changed after input, mark for redraw
+    if (next_menu != menu || menu->current_selection != last_selection)
+    {
+        needs_redraw = true;
+        callback_display_active = false; // Clear callback mode when navigating
+    }
+
     return next_menu ? next_menu : menu;
 }
 
@@ -105,7 +126,7 @@ static Menu *menu_renderer_handle_input(Menu *menu)
 
     if (key == 0)
     {
-        return false; // No input
+        return menu; // No input - return same menu
     }
 
     // Support both arrow keys and WASD navigation.
@@ -128,6 +149,8 @@ static Menu *menu_renderer_handle_input(Menu *menu)
         MenuItem *item = &menu->items[menu->current_selection];
         if (item->submenu != NULL)
         {
+            // Set parent for proper navigation
+            item->submenu->parent = menu;
             item->submenu->current_selection = 0;
             return item->submenu;
         }
@@ -135,11 +158,22 @@ static Menu *menu_renderer_handle_input(Menu *menu)
         if (item->callback != NULL)
         {
             item->callback();
+            callback_display_active = true; // Mark that callback display is active
+            // Don't return a different menu - stay here and wait for ESC
         }
         return menu;
     }
+    else if ((key == KEY_ESC || key == 27) && callback_display_active)
+    { // ESC from callback display - return to parent menu
+        callback_display_active = false;
+        if (menu->parent != NULL)
+        {
+            return menu->parent;
+        }
+        return menu; // Stay if no parent
+    }
     else if (key == KEY_ESC || key == 27)
-    { // ESC
+    { // ESC from menu - go to parent
         if (menu->parent != NULL)
         {
             return menu->parent;

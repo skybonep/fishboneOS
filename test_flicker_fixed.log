@@ -1,0 +1,9 @@
+Kernel main started
+[INFO] kernel_main: set up serial + interrupts
+[INFO] kernel_main: paging initialized, kernel CR3=0x00100000
+[INFO] Heap init: start=0xc0400000 next=0xc0401000
+Kernel initialized, entering single-threaded menu mode
+Kernel initialized, starting menu
+[INFO] PIT: Initialized at 100 Hz (divisor=11931)
+[INFO] Kernel image physical range: 0x00200000 - 0x00210420
+[INFO] Kernel runtime: entering main loop with menu renderer
