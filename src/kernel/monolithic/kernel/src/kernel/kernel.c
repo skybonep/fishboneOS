@@ -23,7 +23,11 @@
 #include <kernel/task.h>
 #include <kernel/cpu.h>
 
-extern void user_main(void);
+#include <kernel/menu.h>
+#include <kernel/menu_renderer.h>
+#include <kernel/menu_main.h>
+
+// Forward declarations
 
 /* Check if the compiler thinks you are targeting the wrong operating system. */
 #if defined(__linux__)
@@ -129,20 +133,6 @@ static void kernel_initialize_runtime(void)
 	kernel_last_service_tick = 0;
 }
 
-static void kernel_idle(void)
-{
-	asm volatile("hlt");
-}
-
-static void kernel_dispatch_events(void)
-{
-	while (keyboard_has_event())
-	{
-		char c = keyboard_get_event();
-		terminal_putchar(c);
-	}
-}
-
 static void kernel_dispatch_periodic_services(void)
 {
 	uint32_t ticks = timer_get_ticks();
@@ -153,21 +143,56 @@ static void kernel_dispatch_periodic_services(void)
 	}
 }
 
-static void kernel_main_loop(void)
+static void kernel_idle(void)
 {
+	uint32_t frame_counter = 0;
+	uint32_t last_frame_tick = 0;
+	const uint32_t FRAME_DELAY_TICKS = 2; // ~20 FPS at 100Hz timer (allows rendering only every ~2 ticks)
+
 	kernel_initialize_runtime();
-	printk(LOG_INFO, "Kernel runtime: entering main loop");
+	printk(LOG_INFO, "Kernel runtime: entering main loop with menu renderer");
+
+	Menu *menu = get_main_menu();
+	if (menu == NULL)
+	{
+		printk(LOG_ERROR, "Failed to get main menu");
+		while (1)
+			asm volatile("hlt");
+	}
 
 	while (1)
 	{
-		kernel_dispatch_events();
+		// Implement frame rate limiting to reduce flicker
+		uint32_t current_tick = timer_get_ticks();
+		if (current_tick - last_frame_tick >= FRAME_DELAY_TICKS)
+		{
+			// Update menu renderer for one frame
+			menu = menu_renderer_update(menu);
+			last_frame_tick = current_tick;
+			frame_counter++;
+		}
+
+		// If menu returns NULL, the menu system has exited
+		if (menu == NULL)
+		{
+			printk(LOG_INFO, "Menu exited, shutting down");
+			while (1)
+			{
+				asm volatile("hlt");
+			}
+		}
+
 		kernel_dispatch_periodic_services();
-		kernel_idle();
+
+		// Yield to allow other tasks to run
+		task_yield();
 	}
 }
 
 void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 {
+	serial_write(SERIAL_COM1_BASE, "Kernel main started\n");
+
 	gdt_init();
 
 	idt_init();
@@ -194,18 +219,17 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	printk(LOG_INFO, "kernel_main: paging initialized, kernel CR3=0x%08x", read_cr3());
 
 	/* Prepare user stack parameters (allocation will be per-user-address-space). */
-	uint32_t user_stack_vaddr = 0xBFFFE000; // Top of user space minus two pages, page aligned (with guard page)
-	const uint32_t user_stack_size = 2 * PAGE_SIZE;
-	uint32_t *user_stack_top = (uint32_t *)(user_stack_vaddr + user_stack_size);
+	uint32_t user_stack_vaddr __attribute__((unused)) = 0xBFFFE000; // Top of user space minus two pages, page aligned (with guard page)
+	const uint32_t user_stack_size __attribute__((unused)) = 2 * PAGE_SIZE;
 
 	heap_init();
 	task_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
 	/* Confirm kernel is ready */
-	serial_write(SERIAL_COM1_BASE, "Kernel initialized, creating tasks\n");
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, entering multi-tasking mode\n");
 
-	/* Create initial kernel tasks before starting timer-driven scheduling. */
+	/* Multi-tasking mode: create idle task */
 	task_t *idle_task = task_create(kernel_idle);
 	if (idle_task != NULL)
 	{
@@ -214,19 +238,8 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 		asm volatile("movl %0, %%esp" : : "r"(idle_task->stack_top) : "memory");
 	}
 
-	// task_create(kernel_worker);
-	// task_t *worker_task_2 = task_create(kernel_worker);
-	if (task_create_user(user_main, user_stack_top, user_stack_size) == NULL)
-	{
-		printk(LOG_ERROR, "Failed to create user task");
-	}
-	// if (worker_task_2 == NULL)
-	// {
-	// 	printk(LOG_ERROR, "Failed to create worker task 2");
-	// }
-
 	/* Confirm kernel is ready */
-	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting scheduler\n");
+	serial_write(SERIAL_COM1_BASE, "Kernel initialized, starting menu\n");
 
 #ifdef DEBUG
 	boot_run_tests();
@@ -248,5 +261,6 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	multiboot_info(multiboot_magic, mbinfo);
 
-	kernel_main_loop();
+	/* Start the idle task (menu system) */
+	kernel_idle();
 }

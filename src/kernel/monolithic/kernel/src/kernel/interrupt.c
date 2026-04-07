@@ -127,7 +127,7 @@ void *interrupt_handler(void *cpu_state_ptr)
     if (interrupt == 32)
     {
         timer_handle_interrupt();
-        printk(LOG_INFO, "timer interrupt tick=%u", timer_get_ticks());
+        /* Preemptive multitasking: switch tasks on timer tick */
         next_context = task_tick();
     }
     else if (interrupt == 33)

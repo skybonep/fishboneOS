@@ -23,6 +23,13 @@ void serial_init(unsigned short com_base);
 // int serial_is_transmit_fifo_empty(unsigned int com);
 
 /**
+ * Checks if the serial port hardware is functional.
+ * @param com_base The COM port base address.
+ * @return 0 if functional, 1 if faulty.
+ */
+int serial_is_faulty(unsigned short com_base);
+
+/**
  * Writes a string of data to the serial port.
  * @param com_base The COM port base address.
  * @param str The string to write.

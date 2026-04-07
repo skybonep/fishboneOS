@@ -3,6 +3,7 @@
 build/
 *.bin
 *.iso
+*.log
 
 ### Assembler ###
 *.exe

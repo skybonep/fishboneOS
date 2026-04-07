@@ -54,3 +54,29 @@ void idt_init()
     extern void load_idt(unsigned int);
     load_idt((unsigned int)&idtp); // Loads the IDT using the 'lidt' instruction
 }
+
+unsigned int idt_get_used_entries(void)
+{
+    unsigned int count = 0;
+    for (int i = 0; i < 256; i++)
+    {
+        if (idt[i].offset_low != 0 || idt[i].offset_high != 0)
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+void idt_get_configured_interrupts(unsigned int *interrupts, unsigned int max_count, unsigned int *count)
+{
+    unsigned int found = 0;
+    for (int i = 0; i < 256 && found < max_count; i++)
+    {
+        if (idt[i].offset_low != 0 || idt[i].offset_high != 0)
+        {
+            interrupts[found++] = i;
+        }
+    }
+    *count = found;
+}

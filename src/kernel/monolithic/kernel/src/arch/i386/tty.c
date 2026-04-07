@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <kernel/tty.h>
+#include <drivers/serial.h>
 
 #include "vga.h"
 
@@ -37,6 +38,15 @@ void terminal_setcolor(uint8_t color)
 	terminal_color = color;
 }
 
+void terminal_setcursor(size_t column, size_t row)
+{
+	if (column < VGA_WIDTH && row < VGA_HEIGHT)
+	{
+		terminal_column = column;
+		terminal_row = row;
+	}
+}
+
 void terminal_putentryat(unsigned char c, uint8_t color, size_t x, size_t y)
 {
 	const size_t index = y * VGA_WIDTH + x;
@@ -45,7 +55,21 @@ void terminal_putentryat(unsigned char c, uint8_t color, size_t x, size_t y)
 
 void terminal_putchar(char c)
 {
-	unsigned char uc = c;
+	if (c == '\n')
+	{
+		terminal_column = 0;
+		if (++terminal_row == VGA_HEIGHT)
+			terminal_row = 0;
+		return;
+	}
+
+	if (c == '\r')
+	{
+		terminal_column = 0;
+		return;
+	}
+
+	char uc = c;
 	terminal_putentryat(uc, terminal_color, terminal_column, terminal_row);
 	if (++terminal_column == VGA_WIDTH)
 	{
@@ -53,6 +77,10 @@ void terminal_putchar(char c)
 		if (++terminal_row == VGA_HEIGHT)
 			terminal_row = 0;
 	}
+
+	// Also write to serial for debugging/menu output
+	char buf[2] = {uc, '\0'};
+	serial_write(SERIAL_COM1_BASE, buf);
 }
 
 void terminal_write(const char *data, size_t size)

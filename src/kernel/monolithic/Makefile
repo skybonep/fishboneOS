@@ -22,6 +22,8 @@ LDFLAGS := -ffreestanding -O2 -nostdlib -lgcc
 
 # auto-discover kernel C sources and assembly sources
 SOURCES := $(shell find kernel libc -type f \( -name '*.c' -o -name '*.s' \) 2>/dev/null)
+# Exclude user_init.c since we now use menu_user_task.c
+SOURCES := $(filter-out kernel/src/kernel/user_init.c, $(SOURCES))
 
 OBJS := $(patsubst %.c,%.o,$(SOURCES))
 OBJS := $(patsubst %.s,%.o,$(OBJS))

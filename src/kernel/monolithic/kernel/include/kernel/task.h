@@ -71,10 +71,12 @@ task_t *task_create(void (*entry_point)(void));
 task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size);
 task_context_t *task_schedule(void);
 task_context_t *task_tick(void);
+task_context_t *task_yield(void);
 task_t *task_get_current(void);
 void task_set_current(task_t *task);
 void task_save_current_context(void *cpu_state_ptr);
 void task_exit(int status);
 void task_terminate(int status);
+task_t *task_get_at_index(uint32_t index);
 
 #endif /* KERNEL_TASK_H */
