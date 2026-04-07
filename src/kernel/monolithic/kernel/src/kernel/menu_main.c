@@ -129,7 +129,7 @@ static void menu_run_hello_world(void)
 
     // Create the user task with proper user stack
     const uint32_t user_stack_top = 0xBFFFE000; // Top of user space minus two pages, page aligned
-    const uint32_t user_stack_size = 2 * 4096;   // 2 pages for stack
+    const uint32_t user_stack_size = 2 * 4096;  // 2 pages for stack
 
     task_t *hello_task = task_create_user(hello_world_main, (uint32_t *)user_stack_top, user_stack_size);
     if (hello_task == NULL)
