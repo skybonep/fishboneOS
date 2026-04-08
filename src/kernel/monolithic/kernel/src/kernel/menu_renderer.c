@@ -9,6 +9,59 @@
 #include <drivers/serial.h>
 #include "../arch/i386/vga.h"
 
+// Direct VGA memory access for menu rendering (no serial output)
+static const size_t VGA_WIDTH = 80;
+static const size_t VGA_HEIGHT = 25;
+static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+
+static void vga_putchar_at(char c, uint8_t color, size_t x, size_t y)
+{
+    if (x >= VGA_WIDTH || y >= VGA_HEIGHT)
+        return;
+    const size_t index = y * VGA_WIDTH + x;
+    VGA_MEMORY[index] = vga_entry(c, color);
+}
+
+static void vga_writestring_at(const char *str, uint8_t color, size_t x, size_t y)
+{
+    size_t current_x = x;
+    size_t current_y = y;
+
+    for (size_t i = 0; str[i] != '\0'; i++)
+    {
+        if (str[i] == '\n')
+        {
+            current_x = 0;
+            current_y++;
+            if (current_y >= VGA_HEIGHT)
+                current_y = 0;
+        }
+        else
+        {
+            vga_putchar_at(str[i], color, current_x, current_y);
+            current_x++;
+            if (current_x >= VGA_WIDTH)
+            {
+                current_x = 0;
+                current_y++;
+                if (current_y >= VGA_HEIGHT)
+                    current_y = 0;
+            }
+        }
+    }
+}
+
+static void vga_clear_screen(uint8_t color)
+{
+    for (size_t y = 0; y < VGA_HEIGHT; y++)
+    {
+        for (size_t x = 0; x < VGA_WIDTH; x++)
+        {
+            vga_putchar_at(' ', color, x, y);
+        }
+    }
+}
+
 // Forward declarations
 static void menu_renderer_draw(const Menu *menu);
 static Menu *menu_renderer_handle_input(Menu *menu);
@@ -64,8 +117,8 @@ Menu *menu_renderer_update(Menu *menu)
 
 static void menu_renderer_draw(const Menu *menu)
 {
-    // Clear screen
-    terminal_init();
+    // Clear screen with black background
+    vga_clear_screen(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
 
     // Draw title bar with equals signs padding
     const char *title = menu->title;
@@ -73,56 +126,65 @@ static void menu_renderer_draw(const Menu *menu)
     size_t total_width = 80;
     size_t padding = (total_width - title_len - 4) / 2; // 4 for "=== " and " ==="
 
+    size_t current_x = 0;
+    size_t current_y = 0;
+
     // Draw padding equals signs
     for (size_t i = 0; i < padding; i++)
     {
-        terminal_putchar('=');
+        vga_putchar_at('=', vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), current_x++, current_y);
     }
 
     // Draw title
-    terminal_writestring("=== ");
-    terminal_writestring(title);
-    terminal_writestring(" ===");
+    vga_writestring_at("=== ", vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), current_x, current_y);
+    current_x += 4;
+    vga_writestring_at(title, vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), current_x, current_y);
+    current_x += title_len;
+    vga_writestring_at(" ===", vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), current_x, current_y);
+    current_x += 4;
 
     // Fill rest with equals signs
-    size_t remaining = total_width - (padding + 4 + title_len + 4);
+    size_t remaining = total_width - current_x;
     for (size_t i = 0; i < remaining; i++)
     {
-        terminal_putchar('=');
+        vga_putchar_at('=', vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), current_x++, current_y);
     }
 
-    terminal_putchar('\n');
-    terminal_putchar('\n');
+    current_y += 2; // Skip a line
 
     // Draw menu items
     for (size_t i = 0; i < menu->item_count; i++)
     {
         const MenuItem *item = &menu->items[i];
 
+        uint8_t color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
         if (i == menu->current_selection)
         {
-            // Highlighted item (inverse colors)
-            terminal_setcolor(vga_entry_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_GREY));
-            terminal_writestring(" > ");
+            color = vga_entry_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_GREY);
+        }
+
+        // Draw selection indicator
+        if (i == menu->current_selection)
+        {
+            vga_writestring_at(" > ", color, 0, current_y);
         }
         else
         {
-            // Normal item
-            terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
-            terminal_writestring("   ");
+            vga_writestring_at("   ", color, 0, current_y);
         }
 
-        terminal_writestring(item->label);
-        terminal_putchar('\n');
+        // Draw menu item label
+        vga_writestring_at(item->label, color, 3, current_y);
+        current_y++;
     }
 
-    // Reset color
-    terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
-
     // Status bar
-    terminal_putchar('\n');
-    terminal_writestring("================================================================================\n");
-    terminal_writestring("Press ENTER to select, UP/DOWN to navigate, ESC to exit\n");
+    current_y++;
+    vga_writestring_at("================================================================================\n",
+                       vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), 0, current_y);
+    current_y++;
+    vga_writestring_at("Press ENTER to select, UP/DOWN to navigate, ESC to exit",
+                       vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK), 0, current_y);
 }
 
 static Menu *menu_renderer_handle_input(Menu *menu)

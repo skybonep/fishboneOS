@@ -2,17 +2,6 @@
 #include <stddef.h>
 #include <kernel/gdt.h>
 
-// Simple strlen implementation for user space
-static size_t user_strlen(const char *str)
-{
-    if (str == NULL)
-        return 0;
-    size_t len = 0;
-    while (str[len] != '\0')
-        len++;
-    return len;
-}
-
 // User-mode Hello World task
 void hello_world_main(void)
 {

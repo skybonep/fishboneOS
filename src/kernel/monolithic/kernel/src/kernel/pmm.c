@@ -154,7 +154,13 @@ void pmm_init(multiboot_info_t *mbinfo)
     pmm_record_region(k_start_frame, k_end_frame, 0);
     pmm_mark_range_used(k_start_frame, k_end_frame);
 
-    // 5. Reserve the Multiboot memory map buffer if it lies in RAM.
+    // 5. Reserve VGA text buffer to prevent corruption of page tables.
+    uint32_t vga_start_frame = 0xB8000 / PAGE_SIZE;
+    uint32_t vga_end_frame = vga_start_frame;
+    pmm_record_region(vga_start_frame, vga_end_frame, 0);
+    pmm_mark_range_used(vga_start_frame, vga_end_frame);
+
+    // 6. Reserve the Multiboot memory map buffer if it lies in RAM.
     if (mbinfo->flags & (1 << 6))
     {
         uint32_t mmap_start_frame = mbinfo->mmap_addr / PAGE_SIZE;

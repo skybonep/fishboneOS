@@ -70,7 +70,7 @@ void terminal_putchar(char c)
 	}
 
 	char uc = c;
-	terminal_putentryat(uc, terminal_color, terminal_column, terminal_row);
+	// terminal_putentryat(uc, terminal_color, terminal_column, terminal_row); // Commented out to avoid VGA access
 	if (++terminal_column == VGA_WIDTH)
 	{
 		terminal_column = 0;
