@@ -52,6 +52,62 @@ static inline int user_read(int fd)
     return (int)eax;
 }
 
+static inline int user_open(const char *path)
+{
+    register uint32_t eax asm("eax") = SYS_OPEN;
+    register const char *ebx asm("ebx") = path;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx)
+                 : "memory");
+
+    return (int)eax;
+}
+
+static inline int user_read_file(int fd, void *buf, uint32_t len)
+{
+    register uint32_t eax asm("eax") = SYS_READ_FILE;
+    register uint32_t ebx asm("ebx") = (uint32_t)fd;
+    register void *ecx asm("ecx") = buf;
+    register uint32_t edx asm("edx") = len;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx), "c"(ecx), "d"(edx)
+                 : "memory");
+
+    return (int)eax;
+}
+
+static inline int user_write_file(int fd, const void *buf, uint32_t len)
+{
+    register uint32_t eax asm("eax") = SYS_WRITE_FILE;
+    register uint32_t ebx asm("ebx") = (uint32_t)fd;
+    register const void *ecx asm("ecx") = buf;
+    register uint32_t edx asm("edx") = len;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx), "c"(ecx), "d"(edx)
+                 : "memory");
+
+    return (int)eax;
+}
+
+static inline int user_close(int fd)
+{
+    register uint32_t eax asm("eax") = SYS_CLOSE;
+    register uint32_t ebx asm("ebx") = (uint32_t)fd;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx)
+                 : "memory");
+
+    return (int)eax;
+}
+
 static inline void user_exit(int status)
 {
     register uint32_t eax asm("eax") = SYS_EXIT;

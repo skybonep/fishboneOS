@@ -4,6 +4,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/serial.h>
 #include <drivers/timer.h>
+#include <kernel/fat16.h>
 #include <kernel/malloc.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
@@ -120,6 +121,41 @@ int sys_read(int fd)
     return (int)keyboard_get_event();
 }
 
+int sys_open(const char *path)
+{
+    if (path == NULL)
+    {
+        return -1;
+    }
+
+    return fat16_open(NULL, path);
+}
+
+int sys_read_file(int fd, uint8_t *buffer, uint32_t count)
+{
+    if (buffer == NULL || count == 0)
+    {
+        return -1;
+    }
+
+    return fat16_read(fd, buffer, count);
+}
+
+int sys_write_file(int fd, const uint8_t *buffer, uint32_t count)
+{
+    if (buffer == NULL || count == 0)
+    {
+        return -1;
+    }
+
+    return fat16_write(fd, buffer, count);
+}
+
+int sys_close(int fd)
+{
+    return fat16_close(fd);
+}
+
 int sys_yield(void)
 {
     // Voluntary yield: enqueue current task and switch to next
@@ -168,6 +204,42 @@ static task_context_t *syscall_handle_read(uint32_t *saved_regs)
     return NULL;
 }
 
+static task_context_t *syscall_handle_open(uint32_t *saved_regs)
+{
+    const char *path = (const char *)(uintptr_t)syscall_get_u32_arg(saved_regs, 0);
+    int result = sys_open(path);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
+static task_context_t *syscall_handle_read_file(uint32_t *saved_regs)
+{
+    int fd = (int)syscall_get_u32_arg(saved_regs, 0);
+    uint8_t *buffer = (uint8_t *)(uintptr_t)syscall_get_u32_arg(saved_regs, 1);
+    uint32_t count = syscall_get_u32_arg(saved_regs, 2);
+    int result = sys_read_file(fd, buffer, count);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
+static task_context_t *syscall_handle_write_file(uint32_t *saved_regs)
+{
+    int fd = (int)syscall_get_u32_arg(saved_regs, 0);
+    const uint8_t *buffer = (const uint8_t *)(uintptr_t)syscall_get_u32_arg(saved_regs, 1);
+    uint32_t count = syscall_get_u32_arg(saved_regs, 2);
+    int result = sys_write_file(fd, buffer, count);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
+static task_context_t *syscall_handle_close(uint32_t *saved_regs)
+{
+    int fd = (int)syscall_get_u32_arg(saved_regs, 0);
+    int result = sys_close(fd);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
 static task_context_t *syscall_handle_yield(uint32_t *saved_regs)
 {
     int result = sys_yield();
@@ -196,6 +268,14 @@ task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs)
         return syscall_handle_sleep(saved_regs);
     case SYS_READ:
         return syscall_handle_read(saved_regs);
+    case SYS_OPEN:
+        return syscall_handle_open(saved_regs);
+    case SYS_READ_FILE:
+        return syscall_handle_read_file(saved_regs);
+    case SYS_WRITE_FILE:
+        return syscall_handle_write_file(saved_regs);
+    case SYS_CLOSE:
+        return syscall_handle_close(saved_regs);
     case SYS_YIELD:
         return syscall_handle_yield(saved_regs);
     default:

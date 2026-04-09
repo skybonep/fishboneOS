@@ -3,12 +3,15 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include <kernel/menu.h>
 #include <kernel/tty.h>
 #include <kernel/multiboot.h>
 #include <kernel/info.h>
 #include <kernel/memory_map.h>
+#include <drivers/block.h>
+#include <kernel/fat16.h>
 #include <kernel/pmm.h>
 #include <kernel/vmm.h>
 #include <kernel/malloc.h>
@@ -18,8 +21,22 @@
 #include <drivers/serial.h>
 #include <drivers/keyboard.h>
 
+// Forward declarations
+static void vga_append_text(const char *text);
+
+// Input handling globals
+char input_buffer[13];
+int input_mode = 0; // 0 = none, 1 = filename
+int input_len = 0;
+int input_has_dot = 0;
+
 // Forward declarations for menu callbacks
 static void menu_boot_os(void);
+static void menu_disk_test(void);
+static void menu_disk_write_test(void);
+static void menu_list_files(void);
+static void menu_create_file(void);
+static void menu_delete_file(void);
 static void menu_memory_test(void);
 static void menu_shutdown(void);
 static void menu_run_hello_world(void);
@@ -39,10 +56,9 @@ static void display_cpu_info(void);
 static void display_memory_info(void);
 static void display_interrupt_info(void);
 static void display_device_info(void);
-static void display_scrollable_text(const char *title, const char *const lines[], size_t line_count);
 
 // Utility function to wait for key press
-static void wait_for_keypress(void);
+
 static char *append_text(char *dest, const char *src);
 static void format_hex_padded(char *buf, uint32_t value);
 
@@ -55,15 +71,25 @@ extern uint32_t kernel_physical_end;
 // Global menu variables
 static Menu main_menu;
 static Menu system_info_menu;
+static Menu disk_management_menu;
 
 // Menu item definitions
 static MenuItem main_menu_items[] = {
     {"Boot OS", menu_boot_os, NULL, true},
+    {"Disk Management", NULL, &disk_management_menu, true},
     {"System Information", NULL, &system_info_menu, true},
     {"List Tasks", menu_list_tasks, NULL, true},
     {"Run Hello World Task", menu_run_hello_world, NULL, true},
     {"Memory Test", menu_memory_test, NULL, true},
     {"Shutdown", menu_shutdown, NULL, true}};
+
+static MenuItem disk_management_items[] = {
+    {"Disk Test", menu_disk_test, NULL, true},
+    {"FAT16 Write Test", menu_disk_write_test, NULL, true},
+    {"List Files", menu_list_files, NULL, true},
+    {"Create File", menu_create_file, NULL, true},
+    {"Delete File", menu_delete_file, NULL, true},
+    {"Back to Main Menu", NULL, &main_menu, true}};
 
 static MenuItem system_info_items[] = {
     {"CPU Details", menu_cpu_details, NULL, true},
@@ -76,9 +102,16 @@ static MenuItem system_info_items[] = {
 static Menu main_menu = {
     .title = "Main Menu",
     .items = main_menu_items,
-    .item_count = 6,
+    .item_count = 7,
     .current_selection = 0,
     .parent = NULL};
+
+static Menu disk_management_menu = {
+    .title = "Disk Management",
+    .items = disk_management_items,
+    .item_count = 6,
+    .current_selection = 0,
+    .parent = &main_menu};
 
 static Menu system_info_menu = {
     .title = "System Information",
@@ -88,30 +121,241 @@ static Menu system_info_menu = {
     .parent = &main_menu};
 
 // Callback implementations
+// Direct VGA output helper for menu callbacks
+static void vga_display_text(const char *text)
+{
+    static const size_t VGA_WIDTH = 80;
+    static const size_t VGA_HEIGHT = 25;
+    static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+    static size_t current_row = 0;
+    static size_t current_col = 0;
+
+    // Clear screen first
+    for (size_t y = 0; y < VGA_HEIGHT; y++)
+    {
+        for (size_t x = 0; x < VGA_WIDTH; x++)
+        {
+            VGA_MEMORY[y * VGA_WIDTH + x] = (uint16_t)' ' | (uint16_t)0x07 << 8;
+        }
+    }
+
+    current_row = 0;
+    current_col = 0;
+
+    for (size_t i = 0; text[i] != '\0'; i++)
+    {
+        if (text[i] == '\n')
+        {
+            current_col = 0;
+            current_row++;
+            if (current_row >= VGA_HEIGHT)
+                current_row = 0;
+        }
+        else if (text[i] == '\r')
+        {
+            current_col = 0;
+        }
+        else
+        {
+            if (current_col < VGA_WIDTH && current_row < VGA_HEIGHT)
+            {
+                VGA_MEMORY[current_row * VGA_WIDTH + current_col] = (uint16_t)text[i] | (uint16_t)0x07 << 8;
+            }
+            current_col++;
+            if (current_col >= VGA_WIDTH)
+            {
+                current_col = 0;
+                current_row++;
+                if (current_row >= VGA_HEIGHT)
+                    current_row = 0;
+            }
+        }
+    }
+}
+
+// Helper function to check if character is valid for FAT16 filename
+static int is_valid_filename_char(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_';
+}
+
+// Convert to uppercase for FAT16
+static char to_upper(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        return c - 32;
+    return c;
+}
+
+// VGA helper functions for scrollable text
+
+static void vga_append_text(const char *text)
+{
+    static const size_t VGA_WIDTH = 80;
+    static const size_t VGA_HEIGHT = 25;
+    static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+    static size_t current_row = 0;
+    static size_t current_col = 0;
+
+    for (size_t i = 0; text[i] != '\0'; i++)
+    {
+        if (text[i] == '\n')
+        {
+            current_col = 0;
+            current_row++;
+            if (current_row >= VGA_HEIGHT)
+                current_row = 0;
+        }
+        else if (text[i] == '\r')
+        {
+            current_col = 0;
+        }
+        else
+        {
+            if (current_col < VGA_WIDTH && current_row < VGA_HEIGHT)
+            {
+                VGA_MEMORY[current_row * VGA_WIDTH + current_col] = (uint16_t)text[i] | (uint16_t)0x07 << 8;
+            }
+            current_col++;
+            if (current_col >= VGA_WIDTH)
+            {
+                current_col = 0;
+                current_row++;
+                if (current_row >= VGA_HEIGHT)
+                    current_row = 0;
+            }
+        }
+    }
+}
+
+void process_filename_input(char key)
+{
+    if (key == '\n' || key == '\r')
+    { // Enter
+        if (input_len > 0)
+        {
+            input_buffer[input_len] = '\0';
+            // Validate 8.3 format
+            char *dot = NULL;
+            for (size_t i = 0; input_buffer[i]; i++)
+            {
+                if (input_buffer[i] == '.')
+                {
+                    dot = &input_buffer[i];
+                    break;
+                }
+            }
+            if (dot)
+            {
+                size_t name_len = dot - input_buffer;
+                size_t ext_len = strlen(dot + 1);
+                if (name_len > 8 || ext_len > 3)
+                {
+                    vga_display_text("\nInvalid filename format (max 8.3). Press ESC to cancel or try again.\n");
+                    vga_append_text("Enter filename (8.3 format, e.g. FILE.TXT): ");
+                    memset(input_buffer, 0, sizeof(input_buffer));
+                    input_len = 0;
+                    input_has_dot = 0;
+                    return;
+                }
+            }
+            else
+            {
+                if (input_len > 8)
+                {
+                    vga_display_text("\nFilename too long (max 8 chars). Press ESC to cancel or try again.\n");
+                    vga_append_text("Enter filename (8.3 format, e.g. FILE.TXT): ");
+                    memset(input_buffer, 0, sizeof(input_buffer));
+                    input_len = 0;
+                    input_has_dot = 0;
+                    return;
+                }
+            }
+            // Create file
+            fat16_fs_t fs;
+            if (fat16_mount(&fs, 0) < 0)
+            {
+                vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+                input_mode = 0;
+                return;
+            }
+            if (fat16_create(&fs, input_buffer) < 0)
+            {
+                char result[256];
+                sprintf(result,
+                        "ERROR: Failed to create file %s.\n"
+                        "File may already exist or no free space in root directory.\n\n"
+                        "Press ESC to return to menu...",
+                        input_buffer);
+                vga_display_text(result);
+            }
+            else
+            {
+                char result[256];
+                sprintf(result,
+                        "File %s created successfully.\n\n"
+                        "Press ESC to return to menu...",
+                        input_buffer);
+                vga_display_text(result);
+            }
+            input_mode = 0;
+        }
+    }
+    else if (key == 27)
+    { // ESC
+        vga_display_text("\nFile creation cancelled.\n\nPress ESC to return to menu...");
+        input_mode = 0;
+    }
+    else if (input_len < 12 && is_valid_filename_char(key))
+    {
+        if (key == '.' && input_has_dot)
+            return; // Only one dot
+        if (key == '.' && input_len == 0)
+            return; // No leading dot
+        input_buffer[input_len++] = to_upper(key);
+        if (key == '.')
+            input_has_dot = 1;
+        char temp[2] = {key, '\0'};
+        vga_append_text(temp);
+    }
+}
+
 static void menu_boot_os(void)
 {
-    terminal_init();
-    terminal_writestring("Booting " OS_NAME "...\n");
-    terminal_writestring("Menu system exiting, starting user tasks...\n");
+    const char *boot_msg = "Booting " OS_NAME "...\nMenu system exiting, starting user tasks...\n";
+    vga_display_text(boot_msg);
     // This will be handled by kernel integration
 }
 
 static void menu_memory_test(void)
 {
-    terminal_init();
-    terminal_writestring("==================== Memory Test =====================\n\n");
+    const char *test_msg = "==================== Memory Test =====================\n\n";
+    vga_display_text(test_msg);
 
     simple_heap_test();
 
-    terminal_writestring("\nPress ESC to return to menu...");
+    const char *return_msg = "\nPress ESC to return to menu...";
+    // Append to existing display
+    static const size_t VGA_WIDTH = 80;
+    static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+    size_t row = 2; // After the title
+    for (size_t i = 0; return_msg[i] != '\0'; i++)
+    {
+        if (return_msg[i] == '\n')
+        {
+            row++;
+        }
+        else if (row < 25)
+        {
+            VGA_MEMORY[row * VGA_WIDTH + i] = (uint16_t)return_msg[i] | (uint16_t)0x07 << 8;
+        }
+    }
 }
 
 static void menu_shutdown(void)
 {
-    terminal_init();
-    terminal_writestring("==================== System Shutdown ====================\n\n");
-    terminal_writestring("Shutting down " OS_NAME "...\n");
-    terminal_writestring("System halted.\n");
+    const char *shutdown_msg = "==================== System Shutdown ====================\n\nShutting down " OS_NAME "...\nSystem halted.\n";
+    vga_display_text(shutdown_msg);
 
     // Halt the system
     asm volatile("cli");
@@ -123,9 +367,8 @@ static void menu_shutdown(void)
 
 static void menu_run_hello_world(void)
 {
-    terminal_init();
-    terminal_writestring("==================== Hello World Task =====================\n\n");
-    terminal_writestring("Creating user-mode Hello World task...\n");
+    const char *hello_msg = "==================== Hello World Task =====================\n\nCreating user-mode Hello World task...\n";
+    vga_display_text(hello_msg);
 
     // Create the user task with proper user stack
     const uint32_t user_stack_top = 0xBFFFE000; // Top of user space minus two pages, page aligned
@@ -134,19 +377,334 @@ static void menu_run_hello_world(void)
     task_t *hello_task = task_create_user(hello_world_main, (uint32_t *)user_stack_top, user_stack_size);
     if (hello_task == NULL)
     {
-        terminal_writestring("ERROR: Failed to create Hello World task!\n");
+        const char *error_msg = "ERROR: Failed to create Hello World task!\n";
+        // Append error message
+        static const size_t VGA_WIDTH = 80;
+        static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+        size_t row = 3;
+        for (size_t i = 0; error_msg[i] != '\0' && row < 25; i++)
+        {
+            if (error_msg[i] == '\n')
+            {
+                row++;
+                i = 0;
+            }
+            else
+            {
+                VGA_MEMORY[row * VGA_WIDTH + i] = (uint16_t)error_msg[i] | (uint16_t)0x07 << 8;
+            }
+        }
     }
     else
     {
-        terminal_writestring("Task created successfully. Check serial output for Hello World message.\n");
-        terminal_writestring("Task PID: ");
+        const char *success_msg = "Task created successfully. Check serial output for Hello World message.\nTask PID: ";
         char pid_buf[8];
         itoa(hello_task->pid, pid_buf, 10);
-        terminal_writestring(pid_buf);
-        terminal_writestring("\n");
+
+        // Display success message
+        static const size_t VGA_WIDTH = 80;
+        static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+        size_t row = 3;
+        size_t col = 0;
+        for (size_t i = 0; success_msg[i] != '\0'; i++)
+        {
+            VGA_MEMORY[row * VGA_WIDTH + col++] = (uint16_t)success_msg[i] | (uint16_t)0x07 << 8;
+            if (col >= VGA_WIDTH)
+            {
+                col = 0;
+                row++;
+            }
+        }
+        for (size_t i = 0; pid_buf[i] != '\0'; i++)
+        {
+            VGA_MEMORY[row * VGA_WIDTH + col++] = (uint16_t)pid_buf[i] | (uint16_t)0x07 << 8;
+            if (col >= VGA_WIDTH)
+            {
+                col = 0;
+                row++;
+            }
+        }
+        VGA_MEMORY[row * VGA_WIDTH + col++] = (uint16_t)'\n' | (uint16_t)0x07 << 8;
     }
 
-    terminal_writestring("\nPress ESC to return to menu...");
+    // Return to menu - input handling is done by menu renderer
+}
+
+static void menu_disk_test(void)
+{
+    fat16_fs_t fs;
+    const char *header = "==================== Disk Test ====================\n\n";
+    vga_display_text(header);
+
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    char result[1024];
+    sprintf(result,
+            "FAT16 mounted successfully.\n"
+            "OEM name: %.8s\n"
+            "Bytes/sector: %u\n"
+            "Sectors/cluster: %u\n"
+            "Reserved sectors: %u\n"
+            "Number of FATs: %u\n"
+            "Root entries: %u\n"
+            "Sectors/FAT: %u\n"
+            "FAT start LBA: %u\n"
+            "Root dir LBA: %u\n"
+            "Data start LBA: %u\n\n",
+            fs.oem_name,
+            fs.bytes_per_sector,
+            fs.sectors_per_cluster,
+            fs.reserved_sector_count,
+            fs.num_fats,
+            fs.root_entry_count,
+            fs.sectors_per_fat,
+            fs.fat_start_lba,
+            fs.root_dir_start_lba,
+            fs.data_start_lba);
+
+    const char *test_names[] = {"README.TXT", "HELLO.TXT", "TEST.TXT", "KERNEL.BIN"};
+    const char *opened_name = NULL;
+    int fd = -1;
+
+    for (size_t i = 0; i < sizeof(test_names) / sizeof(test_names[0]); ++i)
+    {
+        fd = fat16_open(&fs, test_names[i]);
+        if (fd >= 0)
+        {
+            opened_name = test_names[i];
+            break;
+        }
+    }
+
+    if (fd < 0)
+    {
+        sprintf(result + strlen(result),
+                "File test: no known root file found.\n"
+                "Create README.TXT or HELLO.TXT in the FAT16 root and retry.\n\n"
+                "Press ESC to return to menu...");
+        vga_display_text(result);
+        return;
+    }
+
+    uint8_t file_buffer[128];
+    int bytes_read = fat16_read(fd, file_buffer, sizeof(file_buffer));
+    fat16_close(fd);
+
+    if (bytes_read < 0)
+    {
+        sprintf(result + strlen(result),
+                "File test: opened %s but failed to read file.\n\n"
+                "Press ESC to return to menu...",
+                opened_name);
+        vga_display_text(result);
+        return;
+    }
+
+    char preview[256];
+    size_t preview_pos = 0;
+    for (int i = 0; i < bytes_read && preview_pos + 1 < sizeof(preview); ++i)
+    {
+        char ch = (char)file_buffer[i];
+        if (ch >= ' ' && ch < 0x7F)
+        {
+            preview[preview_pos++] = ch;
+        }
+        else if (ch == '\n' || ch == '\r' || ch == '\t')
+        {
+            preview[preview_pos++] = ch;
+        }
+        else
+        {
+            preview[preview_pos++] = '.';
+        }
+    }
+    preview[preview_pos] = '\0';
+
+    sprintf(result + strlen(result),
+            "File test: opened %s and read %d bytes.\n"
+            "File preview:\n%s\n\n"
+            "Press ESC to return to menu...",
+            opened_name,
+            bytes_read,
+            preview);
+
+    vga_display_text(result);
+}
+
+static void menu_disk_write_test(void)
+{
+    fat16_fs_t fs;
+    const char *header = "==================== FAT16 Write Test ====================\n\n";
+    vga_display_text(header);
+
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    const char *target_name = "TEST.TXT";
+    int fd = fat16_open(&fs, target_name);
+    if (fd < 0)
+    {
+        if (fat16_create(&fs, target_name) < 0)
+        {
+            char result[256];
+            sprintf(result,
+                    "ERROR: Could not create %s in root directory.\n"
+                    "Ensure there is free space in the root directory and retry.\n\n"
+                    "Press ESC to return to menu...",
+                    target_name);
+            vga_display_text(result);
+            return;
+        }
+
+        fd = fat16_open(&fs, target_name);
+        if (fd < 0)
+        {
+            char result[256];
+            sprintf(result,
+                    "ERROR: Created %s but failed to open it afterward.\n"
+                    "Press ESC to return to menu...",
+                    target_name);
+            vga_display_text(result);
+            return;
+        }
+    }
+
+    const char *marker = "FAT16 WRITE OK\n";
+    int written = fat16_write(fd, (const uint8_t *)marker, (uint32_t)strlen(marker));
+    if (written < 0)
+    {
+        fat16_close(fd);
+        vga_display_text("ERROR: Failed to write to FAT16 file.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    if (fat16_close(fd) < 0)
+    {
+        vga_display_text("ERROR: Failed to close FAT16 file after write.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    fd = fat16_open(&fs, target_name);
+    if (fd < 0)
+    {
+        vga_display_text("ERROR: Failed to reopen FAT16 file after write.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    uint8_t readback[64];
+    int read_bytes = fat16_read(fd, readback, sizeof(readback) - 1);
+    fat16_close(fd);
+    if (read_bytes < 0)
+    {
+        vga_display_text("ERROR: Failed to read back FAT16 file after write.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    readback[read_bytes] = '\0';
+
+    char result[512];
+    sprintf(result,
+            "FAT16 write test succeeded.\n"
+            "Wrote %d bytes to %s.\n"
+            "Read back %d bytes.\n\n"
+            "File contents:\n%s\n\n"
+            "Press ESC to return to menu...",
+            written,
+            target_name,
+            read_bytes,
+            readback);
+
+    vga_display_text(result);
+}
+
+static void menu_list_files(void)
+{
+    const char *header = "==================== List Files ====================\n\n";
+    vga_display_text(header);
+
+    fat16_fs_t fs;
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    if (fat16_list_root(&fs) < 0)
+    {
+        vga_display_text("ERROR: Failed to list root directory.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    // The list_root function prints to serial/log, so we need to show a message on VGA
+    const char *footer = "\n\nFile listing completed. Check serial output for details.\n\nPress ESC to return to menu...";
+    // For now, just show the footer since the actual listing goes to serial
+    static const size_t VGA_WIDTH = 80;
+    static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+    size_t row = 3; // After header
+    for (size_t i = 0; footer[i] != '\0'; i++)
+    {
+        if (footer[i] == '\n')
+        {
+            row++;
+        }
+        else if (row < 25)
+        {
+            VGA_MEMORY[row * VGA_WIDTH + (i % VGA_WIDTH)] = (uint16_t)footer[i] | (uint16_t)0x07 << 8;
+        }
+    }
+}
+
+static void menu_create_file(void)
+{
+    const char *header = "==================== Create File ====================\n\n";
+    vga_display_text(header);
+
+    // Start input mode
+    input_mode = 1;
+    memset(input_buffer, 0, sizeof(input_buffer));
+    input_len = 0;
+    input_has_dot = 0;
+    vga_append_text("Enter filename (8.3 format, e.g. FILE.TXT): ");
+}
+
+static void menu_delete_file(void)
+{
+    const char *header = "==================== Delete File ====================\n\n";
+    vga_display_text(header);
+
+    fat16_fs_t fs;
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    const char *filename = "NEWFILE.TXT";
+    if (fat16_delete(&fs, filename) < 0)
+    {
+        char result[256];
+        sprintf(result,
+                "ERROR: Failed to delete file %s.\n"
+                "File may not exist.\n\n"
+                "Press ESC to return to menu...",
+                filename);
+        vga_display_text(result);
+        return;
+    }
+
+    char result[256];
+    sprintf(result,
+            "File %s deleted successfully.\n\n"
+            "Press ESC to return to menu...",
+            filename);
+    vga_display_text(result);
 }
 
 // System info submenu callbacks
@@ -173,8 +731,8 @@ static void menu_device_list(void)
 // Info display functions
 static void display_cpu_info(void)
 {
-    terminal_init();
-    terminal_writestring("==================== CPU Details =====================\n\n");
+    char display_text[2000] = "==================== CPU Details =====================\n\n";
+    size_t pos = strlen(display_text);
 
     char vendor[13] = {0};
     cpu_get_vendor_string(vendor);
@@ -187,145 +745,15 @@ static void display_cpu_info(void)
         }
     }
 
-    unsigned int eax = 0;
-    unsigned int ebx = 0;
-    unsigned int ecx = 0;
-    unsigned int edx = 0;
-    bool has_cpuid = cpu_has_cpuid();
-    unsigned int stepping = 0;
-    unsigned int model = 0;
-    unsigned int family = 0;
-    unsigned int ext_model = 0;
-    unsigned int ext_family = 0;
-    unsigned int display_family = 0;
-    unsigned int display_model = 0;
-
-    if (has_cpuid)
-    {
-        cpu_cpuid(1, &eax, &ebx, &ecx, &edx);
-        stepping = eax & 0xF;
-        model = (eax >> 4) & 0xF;
-        family = (eax >> 8) & 0xF;
-        ext_model = (eax >> 16) & 0xF;
-        ext_family = (eax >> 20) & 0xFF;
-        display_family = family;
-        display_model = model;
-        if (family == 0x6 || family == 0xF)
-        {
-            display_model |= (ext_model << 4);
-        }
-        if (family == 0xF)
-        {
-            display_family += ext_family;
-        }
-    }
-
-    char buf[16];
-    terminal_writestring("CPU Information:\n");
-    terminal_writestring("- Vendor: ");
-    terminal_writestring(vendor);
-    terminal_writestring("\n");
-
-    terminal_writestring("- Family: ");
-    itoa(display_family, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring("\n");
-
-    terminal_writestring("- Model: ");
-    itoa(display_model, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring("\n");
-
-    terminal_writestring("- Stepping: ");
-    itoa(stepping, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring("\n");
-
-    terminal_writestring("\nFeatures:\n");
-    if (has_cpuid)
-    {
-        bool any = false;
-        if (edx & (1 << 3))
-        {
-            terminal_writestring("- PSE (Page Size Extension)\n");
-            any = true;
-        }
-        if (edx & (1 << 6))
-        {
-            terminal_writestring("- PAE (Physical Address Extension)\n");
-            any = true;
-        }
-        if (edx & (1 << 5))
-        {
-            terminal_writestring("- MSR (Model-Specific Registers)\n");
-            any = true;
-        }
-        if (edx & (1 << 7))
-        {
-            terminal_writestring("- MCE (Machine Check Exception)\n");
-            any = true;
-        }
-        if (edx & (1 << 8))
-        {
-            terminal_writestring("- CX8 (CMPXCHG8B instruction)\n");
-            any = true;
-        }
-        if (edx & (1 << 9))
-        {
-            terminal_writestring("- APIC (Advanced Programmable Interrupt Controller)\n");
-            any = true;
-        }
-        if (edx & (1 << 13))
-        {
-            terminal_writestring("- PGE (Page Global Enable)\n");
-            any = true;
-        }
-        if (edx & (1 << 23))
-        {
-            terminal_writestring("- MMX (MultiMedia eXtensions)\n");
-            any = true;
-        }
-        if (edx & (1 << 25))
-        {
-            terminal_writestring("- SSE (Streaming SIMD Extensions)\n");
-            any = true;
-        }
-        if (edx & (1 << 26))
-        {
-            terminal_writestring("- SSE2 (Streaming SIMD Extensions 2)\n");
-            any = true;
-        }
-        if (!any)
-        {
-            terminal_writestring("- No standard CPUID features detected\n");
-        }
-    }
-    else
-    {
-        terminal_writestring("- CPUID not supported\n");
-    }
+    pos += sprintf(display_text + pos, "CPU Vendor: %s\n", vendor);
 
     unsigned int total_kb = pmm_get_total_memory_kb();
     unsigned int free_kb = pmm_get_free_memory_kb();
-    unsigned int kernel_reserved_kb = ((uint32_t)&kernel_physical_end - (uint32_t)&kernel_physical_start) / 1024;
+    pos += sprintf(display_text + pos, "\nMemory Summary:\n");
+    pos += sprintf(display_text + pos, "- Total RAM: %d MB\n", total_kb / 1024);
+    pos += sprintf(display_text + pos, "- Available RAM: %d MB\n", free_kb / 1024);
 
-    terminal_writestring("\nMemory Summary:\n");
-    terminal_writestring("- Total RAM: ");
-    itoa(total_kb / 1024, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring(" MB\n");
-
-    terminal_writestring("- Available RAM: ");
-    itoa(free_kb / 1024, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring(" MB\n");
-
-    terminal_writestring("- Kernel reserved: ");
-    itoa(kernel_reserved_kb / 1024, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring(" MB\n");
-
-    terminal_writestring("\nPress ESC to return...");
+    vga_display_text(display_text);
 }
 
 static void display_memory_info(void)
@@ -451,158 +879,78 @@ static void display_memory_info(void)
         "MMIO Reserved:",
         mmio_start_line};
 
-    display_scrollable_text("==================== Memory Information ====================", lines, sizeof(lines) / sizeof(lines[0]));
+    // Display the title
+    terminal_writestring("==================== Memory Information ====================\n");
+
+    // Display all lines
+    for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++)
+    {
+        terminal_writestring(lines[i]);
+        terminal_writestring("\n");
+    }
+
+    // Display on VGA
+    char vga_text[2000] = "==================== Memory Information ====================\n";
+    size_t pos = strlen(vga_text);
+    for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++)
+    {
+        pos += sprintf(vga_text + pos, "%s\n", lines[i]);
+    }
+
+    vga_display_text(vga_text);
+
+    // Return to menu
 }
 
 static void display_interrupt_info(void)
 {
-    terminal_init();
-    terminal_writestring("==================== Interrupt Table ====================\n\n");
+    char display_text[1000] = "==================== Interrupt Table ====================\n\n";
+    size_t pos = strlen(display_text);
 
-    char buf[16];
-    terminal_writestring("IDT Information:\n");
-    terminal_writestring("- Total entries: 256\n");
-    terminal_writestring("- Used entries: ");
+    pos += sprintf(display_text + pos, "IDT Information:\n");
+    pos += sprintf(display_text + pos, "- Total entries: 256\n");
+
     unsigned int used_entries = idt_get_used_entries();
-    itoa(used_entries, buf, 10);
-    terminal_writestring(buf);
-    terminal_writestring("\n");
+    pos += sprintf(display_text + pos, "- Used entries: %d\n", used_entries);
 
-    terminal_writestring("\nConfigured Interrupt Handlers:\n");
+    pos += sprintf(display_text + pos, "\nPIC Configuration:\n");
+    pos += sprintf(display_text + pos, "- Master PIC: IRQs 0-7 -> INTs 32-39\n");
+    pos += sprintf(display_text + pos, "- Slave PIC: IRQs 8-15 -> INTs 40-47\n");
 
-    // Get list of configured interrupts
-    unsigned int configured_interrupts[256];
-    unsigned int configured_count = 0;
-    idt_get_configured_interrupts(configured_interrupts, 256, &configured_count);
-
-    for (unsigned int i = 0; i < configured_count; i++)
-    {
-        unsigned int int_num = configured_interrupts[i];
-        terminal_writestring("- INT ");
-        itoa(int_num, buf, 10);
-        terminal_writestring(buf);
-        terminal_writestring(": ");
-
-        // Describe the interrupt based on its number
-        if (int_num <= 31)
-        {
-            terminal_writestring("CPU Exception");
-        }
-        else if (int_num == 32)
-        {
-            terminal_writestring("Timer (PIT)");
-        }
-        else if (int_num == 33)
-        {
-            terminal_writestring("Keyboard (PS/2)");
-        }
-        else if (int_num == 128)
-        {
-            terminal_writestring("System Call");
-        }
-        else if (int_num >= 34 && int_num <= 47)
-        {
-            terminal_writestring("Hardware IRQ ");
-            itoa(int_num - 32, buf, 10);
-            terminal_writestring(buf);
-        }
-        else
-        {
-            terminal_writestring("Unknown");
-        }
-        terminal_writestring("\n");
-    }
-
-    terminal_writestring("\nPIC Configuration:\n");
-    terminal_writestring("- Master PIC: IRQs 0-7 -> INTs 32-39\n");
-    terminal_writestring("- Slave PIC: IRQs 8-15 -> INTs 40-47\n");
-
-    terminal_writestring("\nPress ESC to return...");
+    vga_display_text(display_text);
 }
 
 static void display_device_info(void)
 {
-    terminal_init();
-    terminal_writestring("==================== Device List ====================\n\n");
+    char display_text[1000] = "==================== Device List ====================\n\n";
+    size_t pos = strlen(display_text);
 
-    terminal_writestring("Detected Devices:\n");
+    pos += sprintf(display_text + pos, "Detected Devices:\n");
 
     // Check serial port
     if (serial_is_faulty(SERIAL_COM1_BASE) == 0)
     {
-        terminal_writestring("- Serial Port (COM1) - Detected\n");
+        pos += sprintf(display_text + pos, "- Serial Port (COM1) - Detected\n");
     }
     else
     {
-        terminal_writestring("- Serial Port (COM1) - Not detected\n");
+        pos += sprintf(display_text + pos, "- Serial Port (COM1) - Not detected\n");
     }
 
-    terminal_writestring("- Timer (PIT 8253/8254) - Detected\n");
-    terminal_writestring("- Keyboard (PS/2) - Detected\n");
-    terminal_writestring("- VGA Text Mode Display - Detected\n");
+    pos += sprintf(display_text + pos, "- Timer (PIT 8253/8254) - Detected\n");
+    pos += sprintf(display_text + pos, "- Keyboard (PS/2) - Detected\n");
+    pos += sprintf(display_text + pos, "- VGA Text Mode Display - Detected\n");
 
-    terminal_writestring("\nI/O Ports:\n");
+    pos += sprintf(display_text + pos, "\nI/O Ports:\n");
+    pos += sprintf(display_text + pos, "- 0x0020-0x0021: Master PIC\n");
+    pos += sprintf(display_text + pos, "- 0x00A0-0x00A1: Slave PIC\n");
+    pos += sprintf(display_text + pos, "- 0x0040-0x0043: PIT Timer\n");
+    pos += sprintf(display_text + pos, "- 0x0060: PS/2 Keyboard Data\n");
+    pos += sprintf(display_text + pos, "- 0x0064: PS/2 Keyboard Status\n");
+    pos += sprintf(display_text + pos, "- 0x03F8-0x03FF: Serial COM1\n");
+    pos += sprintf(display_text + pos, "- 0xB8000: VGA Text Buffer\n");
 
-    char buf[16];
-    terminal_writestring("- ");
-    format_hex_padded(buf, 0x20);
-    terminal_writestring(buf);
-    terminal_writestring("-");
-    format_hex_padded(buf, 0x21);
-    terminal_writestring(buf);
-    terminal_writestring(": Master PIC\n");
-
-    terminal_writestring("- ");
-    format_hex_padded(buf, 0xA0);
-    terminal_writestring(buf);
-    terminal_writestring("-");
-    format_hex_padded(buf, 0xA1);
-    terminal_writestring(buf);
-    terminal_writestring(": Slave PIC\n");
-
-    terminal_writestring("- ");
-    format_hex_padded(buf, 0x40);
-    terminal_writestring(buf);
-    terminal_writestring("-");
-    format_hex_padded(buf, 0x43);
-    terminal_writestring(buf);
-    terminal_writestring(": PIT Timer\n");
-
-    terminal_writestring("- ");
-    format_hex_padded(buf, 0x60);
-    terminal_writestring(buf);
-    terminal_writestring(": PS/2 Keyboard Data\n");
-
-    terminal_writestring("- ");
-    format_hex_padded(buf, 0x64);
-    terminal_writestring(buf);
-    terminal_writestring(": PS/2 Keyboard Status\n");
-
-    terminal_writestring("- ");
-    format_hex_padded(buf, SERIAL_COM1_BASE);
-    terminal_writestring(buf);
-    terminal_writestring("-");
-    format_hex_padded(buf, SERIAL_COM1_BASE + 7);
-    terminal_writestring(buf);
-    terminal_writestring(": Serial COM1\n");
-
-    terminal_writestring("- ");
-    format_hex_padded(buf, 0xB8000);
-    terminal_writestring(buf);
-    terminal_writestring(": VGA Text Buffer\n");
-
-    terminal_writestring("\nPress ESC to return...\n");
-}
-
-static void wait_for_keypress(void);
-
-static void wait_for_keypress(void)
-{
-    while (!keyboard_has_event())
-    {
-        // Busy wait for keypress
-    }
-    keyboard_get_event(); // Consume the key
+    vga_display_text(display_text);
 }
 
 static char *append_text(char *dest, const char *src)
@@ -631,66 +979,6 @@ static void format_hex_padded(char *buf, uint32_t value)
         buf[i + 2] = hex_digits[digit];
     }
     buf[10] = '\0';
-}
-
-static void display_scrollable_text(const char *title, const char *const lines[], size_t line_count)
-{
-    const size_t footer_lines = 2;
-    const size_t title_lines = 1;
-    const size_t viewport_lines = 25 - footer_lines - title_lines;
-    size_t offset = 0;
-
-    while (1)
-    {
-        terminal_init();
-
-        // Render pinned title at the top.
-        terminal_setcursor(0, 0);
-        terminal_writestring(title);
-        terminal_putchar('\n');
-
-        size_t printed = 0;
-        for (size_t i = offset; i < line_count && printed < viewport_lines; i++, printed++)
-        {
-            terminal_writestring(lines[i]);
-            terminal_putchar('\n');
-        }
-
-        for (; printed < viewport_lines; printed++)
-        {
-            terminal_putchar('\n');
-        }
-
-        terminal_setcursor(0, 23);
-        terminal_writestring("================================================================================");
-        terminal_setcursor(0, 24);
-        terminal_writestring("UP/DOWN to scroll, ENTER/ESC to return");
-
-        while (!keyboard_has_event())
-        {
-            // Busy wait for navigation key
-        }
-
-        char key = keyboard_get_event();
-        if (key == KEY_UP || key == 'k' || key == 'K')
-        {
-            if (offset > 0)
-            {
-                offset--;
-            }
-        }
-        else if (key == KEY_DOWN || key == 'j' || key == 'J')
-        {
-            if (offset + viewport_lines < line_count)
-            {
-                offset++;
-            }
-        }
-        else if (key == KEY_ESC || key == KEY_ENTER || key == '\n' || key == '\r')
-        {
-            break;
-        }
-    }
 }
 
 static void simple_heap_test(void)
@@ -731,10 +1019,11 @@ static void simple_heap_test(void)
 
 static void menu_list_tasks(void)
 {
-    terminal_init();
-    terminal_writestring("==================== TASK LIST ====================\n\n");
-    terminal_writestring("PID  | Type   | State    | Quantum | Ticks\n");
-    terminal_writestring("-----|--------|----------|---------|-------\n");
+    char display_text[2000] = "==================== TASK LIST ====================\n\n";
+    size_t pos = strlen(display_text);
+
+    pos += sprintf(display_text + pos, "PID  | Type   | State    | Quantum | Ticks\n");
+    pos += sprintf(display_text + pos, "-----|--------|----------|---------|-------\n");
 
     // Iterate through task table
     for (uint32_t i = 0; i < TASK_MAX; i++)
@@ -770,25 +1059,11 @@ static void menu_list_tasks(void)
         const char *type_str = (task->type == TASK_TYPE_USER) ? "User  " : "Kernel";
 
         // Format line
-        char pid_buf[8], quantum_buf[8], ticks_buf[8];
-        itoa(task->pid, pid_buf, 10);
-        itoa(task->quantum, quantum_buf, 10);
-        itoa(task->ticks, ticks_buf, 10);
-
-        terminal_writestring(" ");
-        terminal_writestring(pid_buf);
-        terminal_writestring("   | ");
-        terminal_writestring(type_str);
-        terminal_writestring(" | ");
-        terminal_writestring(state_str);
-        terminal_writestring(" | ");
-        terminal_writestring(quantum_buf);
-        terminal_writestring("      | ");
-        terminal_writestring(ticks_buf);
-        terminal_writestring("\n");
+        pos += sprintf(display_text + pos, " %d   | %s | %s | %d      | %d\n",
+                       task->pid, type_str, state_str, task->quantum, task->ticks);
     }
 
-    terminal_writestring("\nPress ESC to return...\n");
+    vga_display_text(display_text);
 }
 
 // Public interface
