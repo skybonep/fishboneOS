@@ -65,6 +65,21 @@ int fat16_read(int fd, uint8_t *buffer, uint32_t count);
 int fat16_create(fat16_fs_t *fs, const char *path);
 
 /**
+ * List all files and directories in the root directory.
+ * @param fs Pointer to an allocated fat16_fs_t.
+ * @return 0 on success, -1 on failure.
+ */
+int fat16_list_root(fat16_fs_t *fs);
+
+/**
+ * Delete a root-directory FAT16 file using a short 8.3 name.
+ * @param fs Pointer to an allocated fat16_fs_t.
+ * @param path File name in the root directory.
+ * @return 0 on success, -1 on failure.
+ */
+int fat16_delete(fat16_fs_t *fs, const char *path);
+
+/**
  * Write to an open FAT16 file descriptor.
  * @param fd FAT16 file descriptor returned by fat16_open.
  * @param buffer Source buffer.

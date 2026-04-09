@@ -9,6 +9,10 @@
 #include <drivers/serial.h>
 #include "../arch/i386/vga.h"
 
+// Externs for input handling
+extern int input_mode;
+extern void process_filename_input(char key);
+
 // Direct VGA memory access for menu rendering (no serial output)
 static const size_t VGA_WIDTH = 80;
 static const size_t VGA_HEIGHT = 25;
@@ -194,6 +198,12 @@ static Menu *menu_renderer_handle_input(Menu *menu)
     if (key == 0)
     {
         return menu; // No input - return same menu
+    }
+
+    if (input_mode)
+    {
+        process_filename_input(key);
+        return menu;
     }
 
     // If a callback display is active, ignore navigation and selection until ESC is pressed.

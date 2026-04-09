@@ -21,10 +21,22 @@
 #include <drivers/serial.h>
 #include <drivers/keyboard.h>
 
+// Forward declarations
+static void vga_append_text(const char *text);
+
+// Input handling globals
+char input_buffer[13];
+int input_mode = 0; // 0 = none, 1 = filename
+int input_len = 0;
+int input_has_dot = 0;
+
 // Forward declarations for menu callbacks
 static void menu_boot_os(void);
 static void menu_disk_test(void);
 static void menu_disk_write_test(void);
+static void menu_list_files(void);
+static void menu_create_file(void);
+static void menu_delete_file(void);
 static void menu_memory_test(void);
 static void menu_shutdown(void);
 static void menu_run_hello_world(void);
@@ -59,17 +71,25 @@ extern uint32_t kernel_physical_end;
 // Global menu variables
 static Menu main_menu;
 static Menu system_info_menu;
+static Menu disk_management_menu;
 
 // Menu item definitions
 static MenuItem main_menu_items[] = {
     {"Boot OS", menu_boot_os, NULL, true},
-    {"Disk Test", menu_disk_test, NULL, true},
-    {"FAT16 Write Test", menu_disk_write_test, NULL, true},
+    {"Disk Management", NULL, &disk_management_menu, true},
     {"System Information", NULL, &system_info_menu, true},
     {"List Tasks", menu_list_tasks, NULL, true},
     {"Run Hello World Task", menu_run_hello_world, NULL, true},
     {"Memory Test", menu_memory_test, NULL, true},
     {"Shutdown", menu_shutdown, NULL, true}};
+
+static MenuItem disk_management_items[] = {
+    {"Disk Test", menu_disk_test, NULL, true},
+    {"FAT16 Write Test", menu_disk_write_test, NULL, true},
+    {"List Files", menu_list_files, NULL, true},
+    {"Create File", menu_create_file, NULL, true},
+    {"Delete File", menu_delete_file, NULL, true},
+    {"Back to Main Menu", NULL, &main_menu, true}};
 
 static MenuItem system_info_items[] = {
     {"CPU Details", menu_cpu_details, NULL, true},
@@ -85,6 +105,13 @@ static Menu main_menu = {
     .item_count = 7,
     .current_selection = 0,
     .parent = NULL};
+
+static Menu disk_management_menu = {
+    .title = "Disk Management",
+    .items = disk_management_items,
+    .item_count = 6,
+    .current_selection = 0,
+    .parent = &main_menu};
 
 static Menu system_info_menu = {
     .title = "System Information",
@@ -124,6 +151,10 @@ static void vga_display_text(const char *text)
             if (current_row >= VGA_HEIGHT)
                 current_row = 0;
         }
+        else if (text[i] == '\r')
+        {
+            current_col = 0;
+        }
         else
         {
             if (current_col < VGA_WIDTH && current_row < VGA_HEIGHT)
@@ -142,7 +173,152 @@ static void vga_display_text(const char *text)
     }
 }
 
+// Helper function to check if character is valid for FAT16 filename
+static int is_valid_filename_char(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_';
+}
+
+// Convert to uppercase for FAT16
+static char to_upper(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        return c - 32;
+    return c;
+}
+
 // VGA helper functions for scrollable text
+
+static void vga_append_text(const char *text)
+{
+    static const size_t VGA_WIDTH = 80;
+    static const size_t VGA_HEIGHT = 25;
+    static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+    static size_t current_row = 0;
+    static size_t current_col = 0;
+
+    for (size_t i = 0; text[i] != '\0'; i++)
+    {
+        if (text[i] == '\n')
+        {
+            current_col = 0;
+            current_row++;
+            if (current_row >= VGA_HEIGHT)
+                current_row = 0;
+        }
+        else if (text[i] == '\r')
+        {
+            current_col = 0;
+        }
+        else
+        {
+            if (current_col < VGA_WIDTH && current_row < VGA_HEIGHT)
+            {
+                VGA_MEMORY[current_row * VGA_WIDTH + current_col] = (uint16_t)text[i] | (uint16_t)0x07 << 8;
+            }
+            current_col++;
+            if (current_col >= VGA_WIDTH)
+            {
+                current_col = 0;
+                current_row++;
+                if (current_row >= VGA_HEIGHT)
+                    current_row = 0;
+            }
+        }
+    }
+}
+
+void process_filename_input(char key)
+{
+    if (key == '\n' || key == '\r')
+    { // Enter
+        if (input_len > 0)
+        {
+            input_buffer[input_len] = '\0';
+            // Validate 8.3 format
+            char *dot = NULL;
+            for (size_t i = 0; input_buffer[i]; i++)
+            {
+                if (input_buffer[i] == '.')
+                {
+                    dot = &input_buffer[i];
+                    break;
+                }
+            }
+            if (dot)
+            {
+                size_t name_len = dot - input_buffer;
+                size_t ext_len = strlen(dot + 1);
+                if (name_len > 8 || ext_len > 3)
+                {
+                    vga_display_text("\nInvalid filename format (max 8.3). Press ESC to cancel or try again.\n");
+                    vga_append_text("Enter filename (8.3 format, e.g. FILE.TXT): ");
+                    memset(input_buffer, 0, sizeof(input_buffer));
+                    input_len = 0;
+                    input_has_dot = 0;
+                    return;
+                }
+            }
+            else
+            {
+                if (input_len > 8)
+                {
+                    vga_display_text("\nFilename too long (max 8 chars). Press ESC to cancel or try again.\n");
+                    vga_append_text("Enter filename (8.3 format, e.g. FILE.TXT): ");
+                    memset(input_buffer, 0, sizeof(input_buffer));
+                    input_len = 0;
+                    input_has_dot = 0;
+                    return;
+                }
+            }
+            // Create file
+            fat16_fs_t fs;
+            if (fat16_mount(&fs, 0) < 0)
+            {
+                vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+                input_mode = 0;
+                return;
+            }
+            if (fat16_create(&fs, input_buffer) < 0)
+            {
+                char result[256];
+                sprintf(result,
+                        "ERROR: Failed to create file %s.\n"
+                        "File may already exist or no free space in root directory.\n\n"
+                        "Press ESC to return to menu...",
+                        input_buffer);
+                vga_display_text(result);
+            }
+            else
+            {
+                char result[256];
+                sprintf(result,
+                        "File %s created successfully.\n\n"
+                        "Press ESC to return to menu...",
+                        input_buffer);
+                vga_display_text(result);
+            }
+            input_mode = 0;
+        }
+    }
+    else if (key == 27)
+    { // ESC
+        vga_display_text("\nFile creation cancelled.\n\nPress ESC to return to menu...");
+        input_mode = 0;
+    }
+    else if (input_len < 12 && is_valid_filename_char(key))
+    {
+        if (key == '.' && input_has_dot)
+            return; // Only one dot
+        if (key == '.' && input_len == 0)
+            return; // No leading dot
+        input_buffer[input_len++] = to_upper(key);
+        if (key == '.')
+            input_has_dot = 1;
+        char temp[2] = {key, '\0'};
+        vga_append_text(temp);
+    }
+}
 
 static void menu_boot_os(void)
 {
@@ -445,6 +621,89 @@ static void menu_disk_write_test(void)
             read_bytes,
             readback);
 
+    vga_display_text(result);
+}
+
+static void menu_list_files(void)
+{
+    const char *header = "==================== List Files ====================\n\n";
+    vga_display_text(header);
+
+    fat16_fs_t fs;
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    if (fat16_list_root(&fs) < 0)
+    {
+        vga_display_text("ERROR: Failed to list root directory.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    // The list_root function prints to serial/log, so we need to show a message on VGA
+    const char *footer = "\n\nFile listing completed. Check serial output for details.\n\nPress ESC to return to menu...";
+    // For now, just show the footer since the actual listing goes to serial
+    static const size_t VGA_WIDTH = 80;
+    static uint16_t *const VGA_MEMORY = (uint16_t *)0xB8000;
+    size_t row = 3; // After header
+    for (size_t i = 0; footer[i] != '\0'; i++)
+    {
+        if (footer[i] == '\n')
+        {
+            row++;
+        }
+        else if (row < 25)
+        {
+            VGA_MEMORY[row * VGA_WIDTH + (i % VGA_WIDTH)] = (uint16_t)footer[i] | (uint16_t)0x07 << 8;
+        }
+    }
+}
+
+static void menu_create_file(void)
+{
+    const char *header = "==================== Create File ====================\n\n";
+    vga_display_text(header);
+
+    // Start input mode
+    input_mode = 1;
+    memset(input_buffer, 0, sizeof(input_buffer));
+    input_len = 0;
+    input_has_dot = 0;
+    vga_append_text("Enter filename (8.3 format, e.g. FILE.TXT): ");
+}
+
+static void menu_delete_file(void)
+{
+    const char *header = "==================== Delete File ====================\n\n";
+    vga_display_text(header);
+
+    fat16_fs_t fs;
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    const char *filename = "NEWFILE.TXT";
+    if (fat16_delete(&fs, filename) < 0)
+    {
+        char result[256];
+        sprintf(result,
+                "ERROR: Failed to delete file %s.\n"
+                "File may not exist.\n\n"
+                "Press ESC to return to menu...",
+                filename);
+        vga_display_text(result);
+        return;
+    }
+
+    char result[256];
+    sprintf(result,
+            "File %s deleted successfully.\n\n"
+            "Press ESC to return to menu...",
+            filename);
     vga_display_text(result);
 }
 

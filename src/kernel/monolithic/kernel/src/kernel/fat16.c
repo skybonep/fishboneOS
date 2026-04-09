@@ -43,6 +43,7 @@ static uint16_t fat16_read_fat_entry(const fat16_fs_t *fs, uint16_t cluster);
 static int fat16_find_root_entry(const fat16_fs_t *fs, const uint8_t target_name[FAT16_MAX_FILE_NAME], uint16_t *out_cluster, uint32_t *out_size, uint32_t *out_dir_lba, uint32_t *out_dir_offset);
 static int fat16_find_free_root_entry(const fat16_fs_t *fs, uint32_t *out_dir_lba, uint32_t *out_dir_offset);
 static int fat16_create_root_entry(const fat16_fs_t *fs, const uint8_t normalized[FAT16_MAX_FILE_NAME], uint32_t dir_entry_lba, uint32_t dir_entry_offset);
+static int fat16_delete_root_entry(uint32_t dir_entry_lba, uint32_t dir_entry_offset);
 
 static uint16_t fat16_read_le16(const uint8_t *buffer)
 {
@@ -400,6 +401,24 @@ static int fat16_create_root_entry(const fat16_fs_t *fs, const uint8_t normalize
     return 0;
 }
 
+static int fat16_delete_root_entry(uint32_t dir_entry_lba, uint32_t dir_entry_offset)
+{
+    uint8_t sector[512];
+    if (block_read(dir_entry_lba, sector, 1) < 0)
+    {
+        return -1;
+    }
+
+    sector[dir_entry_offset] = 0xE5; /* Mark as deleted */
+
+    if (block_write(dir_entry_lba, sector, 1) < 0)
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
 int fat16_create(fat16_fs_t *fs, const char *path)
 {
     const fat16_fs_t *use_fs = (fs != NULL) ? fs : fat16_current_fs;
@@ -432,8 +451,121 @@ int fat16_create(fat16_fs_t *fs, const char *path)
     return fat16_create_root_entry(use_fs, normalized, dir_entry_lba, dir_entry_offset);
 }
 
+int fat16_list_root(fat16_fs_t *fs)
+{
+    const fat16_fs_t *use_fs = (fs != NULL) ? fs : fat16_current_fs;
+    uint8_t sector[512];
+    uint32_t root_sector_count = use_fs->root_dir_sectors;
+
+    if (use_fs == NULL)
+    {
+        return -1;
+    }
+
+    for (uint32_t sector_index = 0; sector_index < root_sector_count; ++sector_index)
+    {
+        uint32_t lba = use_fs->root_dir_start_lba + sector_index;
+        if (block_read(lba, sector, 1) < 0)
+        {
+            return -1;
+        }
+
+        for (uint32_t offset = 0; offset < use_fs->bytes_per_sector; offset += FAT16_ENTRY_SIZE)
+        {
+            uint8_t first_byte = sector[offset];
+            if (first_byte == 0x00)
+            {
+                break; /* End of directory */
+            }
+            if (first_byte == 0xE5)
+            {
+                continue; /* Deleted entry */
+            }
+
+            uint8_t attributes = sector[offset + 0x0B];
+            if ((attributes & FAT16_ATTR_LONG_NAME) == FAT16_ATTR_LONG_NAME)
+            {
+                continue; /* Long file name entry */
+            }
+            if (attributes & FAT16_ATTR_VOLUME_ID)
+            {
+                continue; /* Volume ID */
+            }
+
+            /* Extract file name */
+            char filename[13]; /* 8.3 + dot + null */
+            int fname_pos = 0;
+            for (int i = 0; i < 8; ++i)
+            {
+                char ch = (char)sector[offset + i];
+                if (ch != ' ')
+                {
+                    filename[fname_pos++] = ch;
+                }
+            }
+            if (sector[offset + 8] != ' ')
+            {
+                filename[fname_pos++] = '.';
+                for (int i = 8; i < 11; ++i)
+                {
+                    char ch = (char)sector[offset + i];
+                    if (ch != ' ')
+                    {
+                        filename[fname_pos++] = ch;
+                    }
+                }
+            }
+            filename[fname_pos] = '\0';
+
+            uint32_t file_size = fat16_read_le32(&sector[offset + 0x1C]);
+
+            /* Print file info */
+            if (attributes & FAT16_ATTR_DIRECTORY)
+            {
+                /* Directory */
+                printk(LOG_INFO, "DIR  %s", filename);
+            }
+            else
+            {
+                /* Regular file */
+                printk(LOG_INFO, "FILE %s (%u bytes)", filename, file_size);
+            }
+        }
+    }
+
+    return 0;
+}
+
+int fat16_delete(fat16_fs_t *fs, const char *path)
+{
+    const fat16_fs_t *use_fs = (fs != NULL) ? fs : fat16_current_fs;
+    uint8_t normalized[FAT16_MAX_FILE_NAME];
+    uint32_t dir_entry_lba;
+    uint32_t dir_entry_offset;
+
+    if (use_fs == NULL || path == NULL)
+    {
+        return -1;
+    }
+
+    if (fat16_normalize_short_name(path, normalized) < 0)
+    {
+        return -1;
+    }
+
+    uint16_t start_cluster;
+    uint32_t file_size;
+    if (fat16_find_root_entry(use_fs, normalized, &start_cluster, &file_size, &dir_entry_lba, &dir_entry_offset) <= 0)
+    {
+        return -1; /* File not found */
+    }
+
+    return fat16_delete_root_entry(dir_entry_lba, dir_entry_offset);
+}
+
 int fat16_mount(fat16_fs_t *fs, uint32_t volume_lba)
 {
+
     if (fs == NULL)
     {
         return -1;
