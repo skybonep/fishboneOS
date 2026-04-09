@@ -9,6 +9,7 @@
 #include <drivers/serial.h>
 #include <drivers/timer.h>
 #include <drivers/keyboard.h>
+#include <drivers/block.h>
 #include <kernel/log.h>
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
@@ -225,6 +226,15 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 	heap_init();
 	task_init();
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
+
+	if (block_init() == 0)
+	{
+		printk(LOG_INFO, "block_init: initialized");
+	}
+	else
+	{
+		printk(LOG_ERROR, "block_init: failed");
+	}
 
 	/* Confirm kernel is ready */
 	serial_write(SERIAL_COM1_BASE, "Kernel initialized, entering multi-tasking mode\n");

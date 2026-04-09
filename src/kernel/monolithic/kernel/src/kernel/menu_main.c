@@ -10,6 +10,7 @@
 #include <kernel/multiboot.h>
 #include <kernel/info.h>
 #include <kernel/memory_map.h>
+#include <drivers/block.h>
 #include <kernel/pmm.h>
 #include <kernel/vmm.h>
 #include <kernel/malloc.h>
@@ -21,6 +22,7 @@
 
 // Forward declarations for menu callbacks
 static void menu_boot_os(void);
+static void menu_disk_test(void);
 static void menu_memory_test(void);
 static void menu_shutdown(void);
 static void menu_run_hello_world(void);
@@ -59,6 +61,7 @@ static Menu system_info_menu;
 // Menu item definitions
 static MenuItem main_menu_items[] = {
     {"Boot OS", menu_boot_os, NULL, true},
+    {"Disk Test", menu_disk_test, NULL, true},
     {"System Information", NULL, &system_info_menu, true},
     {"List Tasks", menu_list_tasks, NULL, true},
     {"Run Hello World Task", menu_run_hello_world, NULL, true},
@@ -246,6 +249,27 @@ static void menu_run_hello_world(void)
     }
 
     // Return to menu - input handling is done by menu renderer
+}
+
+static void menu_disk_test(void)
+{
+    unsigned char sector[512];
+    const char *header = "==================== Disk Test ====================\n\n";
+    vga_display_text(header);
+
+    if (block_read(0, sector, 1) < 0)
+    {
+        vga_display_text("ERROR: Failed to read sector 0 from disk.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    uint16_t signature = (uint16_t)sector[510] | ((uint16_t)sector[511] << 8);
+    char result[256];
+    sprintf(result,
+            "Sector 0 read successfully.\nBoot signature: 0x%04X\nOEM name: %.8s\n\nPress ESC to return to menu...",
+            signature,
+            &sector[3]);
+    vga_display_text(result);
 }
 
 // System info submenu callbacks

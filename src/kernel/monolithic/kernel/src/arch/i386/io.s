@@ -17,6 +17,25 @@ outb:
     outb %al, %dx
     ret
 
+.global outw
+.global inw
+
+/* outw - sends a word to an I/O port
+   Stack: [esp + 8] is the word to send
+          [esp + 4] is the I/O port */
+outw:
+    movw 8(%esp), %ax
+    movw 4(%esp), %dx
+    outw %ax, %dx
+    ret
+
+/* inw - returns a word from the given I/O port
+   Stack: [esp + 4] is the I/O port */
+inw:
+    movw 4(%esp), %dx
+    inw %dx, %ax
+    ret
+
 /* inb - returns a byte from the given I/O port
    Stack: [esp + 4] is the I/O port */
 inb:
