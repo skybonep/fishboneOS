@@ -80,6 +80,21 @@ static inline int user_read_file(int fd, void *buf, uint32_t len)
     return (int)eax;
 }
 
+static inline int user_write_file(int fd, const void *buf, uint32_t len)
+{
+    register uint32_t eax asm("eax") = SYS_WRITE_FILE;
+    register uint32_t ebx asm("ebx") = (uint32_t)fd;
+    register const void *ecx asm("ecx") = buf;
+    register uint32_t edx asm("edx") = len;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx), "c"(ecx), "d"(edx)
+                 : "memory");
+
+    return (int)eax;
+}
+
 static inline int user_close(int fd)
 {
     register uint32_t eax asm("eax") = SYS_CLOSE;

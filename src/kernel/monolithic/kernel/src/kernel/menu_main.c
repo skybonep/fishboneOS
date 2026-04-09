@@ -24,6 +24,7 @@
 // Forward declarations for menu callbacks
 static void menu_boot_os(void);
 static void menu_disk_test(void);
+static void menu_disk_write_test(void);
 static void menu_memory_test(void);
 static void menu_shutdown(void);
 static void menu_run_hello_world(void);
@@ -63,6 +64,7 @@ static Menu system_info_menu;
 static MenuItem main_menu_items[] = {
     {"Boot OS", menu_boot_os, NULL, true},
     {"Disk Test", menu_disk_test, NULL, true},
+    {"FAT16 Write Test", menu_disk_write_test, NULL, true},
     {"System Information", NULL, &system_info_menu, true},
     {"List Tasks", menu_list_tasks, NULL, true},
     {"Run Hello World Task", menu_run_hello_world, NULL, true},
@@ -264,7 +266,7 @@ static void menu_disk_test(void)
         return;
     }
 
-    char result[512];
+    char result[1024];
     sprintf(result,
             "FAT16 mounted successfully.\n"
             "OEM name: %.8s\n"
@@ -276,8 +278,7 @@ static void menu_disk_test(void)
             "Sectors/FAT: %u\n"
             "FAT start LBA: %u\n"
             "Root dir LBA: %u\n"
-            "Data start LBA: %u\n\n"
-            "Press ESC to return to menu...",
+            "Data start LBA: %u\n\n",
             fs.oem_name,
             fs.bytes_per_sector,
             fs.sectors_per_cluster,
@@ -288,6 +289,162 @@ static void menu_disk_test(void)
             fs.fat_start_lba,
             fs.root_dir_start_lba,
             fs.data_start_lba);
+
+    const char *test_names[] = {"README.TXT", "HELLO.TXT", "TEST.TXT", "KERNEL.BIN"};
+    const char *opened_name = NULL;
+    int fd = -1;
+
+    for (size_t i = 0; i < sizeof(test_names) / sizeof(test_names[0]); ++i)
+    {
+        fd = fat16_open(&fs, test_names[i]);
+        if (fd >= 0)
+        {
+            opened_name = test_names[i];
+            break;
+        }
+    }
+
+    if (fd < 0)
+    {
+        sprintf(result + strlen(result),
+                "File test: no known root file found.\n"
+                "Create README.TXT or HELLO.TXT in the FAT16 root and retry.\n\n"
+                "Press ESC to return to menu...");
+        vga_display_text(result);
+        return;
+    }
+
+    uint8_t file_buffer[128];
+    int bytes_read = fat16_read(fd, file_buffer, sizeof(file_buffer));
+    fat16_close(fd);
+
+    if (bytes_read < 0)
+    {
+        sprintf(result + strlen(result),
+                "File test: opened %s but failed to read file.\n\n"
+                "Press ESC to return to menu...",
+                opened_name);
+        vga_display_text(result);
+        return;
+    }
+
+    char preview[256];
+    size_t preview_pos = 0;
+    for (int i = 0; i < bytes_read && preview_pos + 1 < sizeof(preview); ++i)
+    {
+        char ch = (char)file_buffer[i];
+        if (ch >= ' ' && ch < 0x7F)
+        {
+            preview[preview_pos++] = ch;
+        }
+        else if (ch == '\n' || ch == '\r' || ch == '\t')
+        {
+            preview[preview_pos++] = ch;
+        }
+        else
+        {
+            preview[preview_pos++] = '.';
+        }
+    }
+    preview[preview_pos] = '\0';
+
+    sprintf(result + strlen(result),
+            "File test: opened %s and read %d bytes.\n"
+            "File preview:\n%s\n\n"
+            "Press ESC to return to menu...",
+            opened_name,
+            bytes_read,
+            preview);
+
+    vga_display_text(result);
+}
+
+static void menu_disk_write_test(void)
+{
+    fat16_fs_t fs;
+    const char *header = "==================== FAT16 Write Test ====================\n\n";
+    vga_display_text(header);
+
+    if (fat16_mount(&fs, 0) < 0)
+    {
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    const char *target_name = "TEST.TXT";
+    int fd = fat16_open(&fs, target_name);
+    if (fd < 0)
+    {
+        if (fat16_create(&fs, target_name) < 0)
+        {
+            char result[256];
+            sprintf(result,
+                    "ERROR: Could not create %s in root directory.\n"
+                    "Ensure there is free space in the root directory and retry.\n\n"
+                    "Press ESC to return to menu...",
+                    target_name);
+            vga_display_text(result);
+            return;
+        }
+
+        fd = fat16_open(&fs, target_name);
+        if (fd < 0)
+        {
+            char result[256];
+            sprintf(result,
+                    "ERROR: Created %s but failed to open it afterward.\n"
+                    "Press ESC to return to menu...",
+                    target_name);
+            vga_display_text(result);
+            return;
+        }
+    }
+
+    const char *marker = "FAT16 WRITE OK\n";
+    int written = fat16_write(fd, (const uint8_t *)marker, (uint32_t)strlen(marker));
+    if (written < 0)
+    {
+        fat16_close(fd);
+        vga_display_text("ERROR: Failed to write to FAT16 file.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    if (fat16_close(fd) < 0)
+    {
+        vga_display_text("ERROR: Failed to close FAT16 file after write.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    fd = fat16_open(&fs, target_name);
+    if (fd < 0)
+    {
+        vga_display_text("ERROR: Failed to reopen FAT16 file after write.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    uint8_t readback[64];
+    int read_bytes = fat16_read(fd, readback, sizeof(readback) - 1);
+    fat16_close(fd);
+    if (read_bytes < 0)
+    {
+        vga_display_text("ERROR: Failed to read back FAT16 file after write.\n\nPress ESC to return to menu...");
+        return;
+    }
+
+    readback[read_bytes] = '\0';
+
+    char result[512];
+    sprintf(result,
+            "FAT16 write test succeeded.\n"
+            "Wrote %d bytes to %s.\n"
+            "Read back %d bytes.\n\n"
+            "File contents:\n%s\n\n"
+            "Press ESC to return to menu...",
+            written,
+            target_name,
+            read_bytes,
+            readback);
+
     vga_display_text(result);
 }
 

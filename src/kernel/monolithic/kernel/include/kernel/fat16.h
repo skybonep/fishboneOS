@@ -57,6 +57,23 @@ int fat16_open(fat16_fs_t *fs, const char *path);
 int fat16_read(int fd, uint8_t *buffer, uint32_t count);
 
 /**
+ * Create a new root-directory FAT16 file using a short 8.3 name.
+ * @param fs Pointer to an allocated fat16_fs_t.
+ * @param path File name in the root directory.
+ * @return 0 on success, -1 on failure.
+ */
+int fat16_create(fat16_fs_t *fs, const char *path);
+
+/**
+ * Write to an open FAT16 file descriptor.
+ * @param fd FAT16 file descriptor returned by fat16_open.
+ * @param buffer Source buffer.
+ * @param count Number of bytes to write.
+ * @return Number of bytes written, or -1 on failure.
+ */
+int fat16_write(int fd, const uint8_t *buffer, uint32_t count);
+
+/**
  * Close an open FAT16 file descriptor.
  * @param fd FAT16 file descriptor returned by fat16_open.
  * @return 0 on success, -1 on failure.
