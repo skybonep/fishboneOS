@@ -11,6 +11,7 @@
 #include <kernel/info.h>
 #include <kernel/memory_map.h>
 #include <drivers/block.h>
+#include <kernel/fat16.h>
 #include <kernel/pmm.h>
 #include <kernel/vmm.h>
 #include <kernel/malloc.h>
@@ -79,7 +80,7 @@ static MenuItem system_info_items[] = {
 static Menu main_menu = {
     .title = "Main Menu",
     .items = main_menu_items,
-    .item_count = 6,
+    .item_count = 7,
     .current_selection = 0,
     .parent = NULL};
 
@@ -253,22 +254,40 @@ static void menu_run_hello_world(void)
 
 static void menu_disk_test(void)
 {
-    unsigned char sector[512];
+    fat16_fs_t fs;
     const char *header = "==================== Disk Test ====================\n\n";
     vga_display_text(header);
 
-    if (block_read(0, sector, 1) < 0)
+    if (fat16_mount(&fs, 0) < 0)
     {
-        vga_display_text("ERROR: Failed to read sector 0 from disk.\n\nPress ESC to return to menu...");
+        vga_display_text("ERROR: Failed to mount FAT16 volume at LBA 0.\n\nPress ESC to return to menu...");
         return;
     }
 
-    uint16_t signature = (uint16_t)sector[510] | ((uint16_t)sector[511] << 8);
-    char result[256];
+    char result[512];
     sprintf(result,
-            "Sector 0 read successfully.\nBoot signature: 0x%04X\nOEM name: %.8s\n\nPress ESC to return to menu...",
-            signature,
-            &sector[3]);
+            "FAT16 mounted successfully.\n"
+            "OEM name: %.8s\n"
+            "Bytes/sector: %u\n"
+            "Sectors/cluster: %u\n"
+            "Reserved sectors: %u\n"
+            "Number of FATs: %u\n"
+            "Root entries: %u\n"
+            "Sectors/FAT: %u\n"
+            "FAT start LBA: %u\n"
+            "Root dir LBA: %u\n"
+            "Data start LBA: %u\n\n"
+            "Press ESC to return to menu...",
+            fs.oem_name,
+            fs.bytes_per_sector,
+            fs.sectors_per_cluster,
+            fs.reserved_sector_count,
+            fs.num_fats,
+            fs.root_entry_count,
+            fs.sectors_per_fat,
+            fs.fat_start_lba,
+            fs.root_dir_start_lba,
+            fs.data_start_lba);
     vga_display_text(result);
 }
 
