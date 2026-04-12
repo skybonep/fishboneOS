@@ -11,6 +11,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/block.h>
 #include <kernel/log.h>
+#include <kernel/module.h>
 #include <kernel/gdt.h>
 #include <kernel/idt.h>
 #include <kernel/pic.h>
@@ -27,6 +28,10 @@
 #include <kernel/menu.h>
 #include <kernel/menu_renderer.h>
 #include <kernel/menu_main.h>
+
+// Embedded module data
+extern const uint8_t embedded_hello_module[];
+extern const uint32_t embedded_hello_module_size;
 
 // Forward declarations
 
@@ -225,6 +230,33 @@ void kernel_main(unsigned int multiboot_magic, unsigned int multiboot_info_ptr)
 
 	heap_init();
 	task_init();
+
+	/* Register kernel symbols that can be resolved by loadable modules. */
+	EXPORT_SYMBOL(printk);
+	EXPORT_SYMBOL(kmalloc);
+	EXPORT_SYMBOL(kfree);
+	EXPORT_SYMBOL(task_create);
+	EXPORT_SYMBOL(task_exit);
+
+	/* Load embedded test module binary blob */
+	if (embedded_hello_module_size > 0)
+	{
+		printk(LOG_INFO, "Loading embedded module: size=%u bytes", embedded_hello_module_size);
+		int result = module_load((const void *)embedded_hello_module, embedded_hello_module_size);
+		if (result == 0)
+		{
+			printk(LOG_INFO, "Embedded module loaded successfully");
+		}
+		else
+		{
+			printk(LOG_ERROR, "Failed to load embedded module: error %d", result);
+		}
+	}
+	else
+	{
+		printk(LOG_INFO, "No embedded modules found");
+	}
+
 	printk(LOG_INFO, "Heap init: start=0x%08x next=0x%08x", KERNEL_HEAP_START, heap_get_end_vaddr());
 
 	if (block_init() == 0)
