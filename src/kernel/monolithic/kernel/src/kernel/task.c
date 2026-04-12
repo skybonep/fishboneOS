@@ -9,6 +9,7 @@
 #include <kernel/vmm.h>
 #include <kernel/pmm.h>
 #include <kernel/paging.h>
+#include <kernel/elf_loader.h>
 #include <drivers/timer.h>
 #include <kernel/task.h>
 #include <kernel/log.h>
@@ -213,11 +214,22 @@ void task_terminate(int status)
             pmm_free_frame((void *)current_task->user_stack_paddr);
             current_task->user_stack_paddr = 0;
         }
+
         if (current_task->user_code_paddr != 0)
         {
             pmm_free_frame((void *)current_task->user_code_paddr);
             current_task->user_code_paddr = 0;
         }
+
+        for (uint32_t i = 0; i < current_task->user_code_frame_count; ++i)
+        {
+            if (current_task->user_code_frames[i] != 0)
+            {
+                pmm_free_frame((void *)(uintptr_t)current_task->user_code_frames[i]);
+                current_task->user_code_frames[i] = 0;
+            }
+        }
+        current_task->user_code_frame_count = 0;
     }
 }
 
@@ -286,6 +298,11 @@ static task_t *task_alloc(void)
             task->user_stack_size = 0;
             task->user_stack_paddr = 0;
             task->user_code_paddr = 0;
+            task->user_code_frame_count = 0;
+            for (uint32_t frame = 0; frame < MAX_USER_CODE_PAGES; ++frame)
+            {
+                task->user_code_frames[frame] = 0;
+            }
             task->wake_tick = 0;
             task->exit_status = 0;
             task->page_directory_phys = vmm_get_kernel_pdt_phys(); /* default to kernel PD */
@@ -323,6 +340,11 @@ void task_init(void)
         task_table[index].user_stack_size = 0;
         task_table[index].user_stack_paddr = 0;
         task_table[index].user_code_paddr = 0;
+        task_table[index].user_code_frame_count = 0;
+        for (uint32_t frame = 0; frame < MAX_USER_CODE_PAGES; ++frame)
+        {
+            task_table[index].user_code_frames[frame] = 0;
+        }
         task_table[index].wake_tick = 0;
         task_table[index].exit_status = 0;
         memset(&task_table[index].context, 0, sizeof(task_context_t));

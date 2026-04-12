@@ -5,6 +5,7 @@
 
 #define TASK_MAX 16
 #define TASK_QUANTUM_DEFAULT 5
+#define MAX_USER_CODE_PAGES 16
 
 typedef enum task_state
 {
@@ -53,6 +54,8 @@ typedef struct task
     uint32_t user_stack_size;
     uint32_t user_stack_paddr;
     uint32_t user_code_paddr;
+    uint32_t user_code_frame_count;
+    uint32_t user_code_frames[MAX_USER_CODE_PAGES];
 
     /* Per-task address space (CR3) */
     uint32_t page_directory_phys;
@@ -69,6 +72,7 @@ typedef struct task
 void task_init(void);
 task_t *task_create(void (*entry_point)(void));
 task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size);
+task_t *task_create_user_from_elf(const void *elf_data, size_t elf_size, uint32_t *user_stack_top, uint32_t user_stack_size);
 task_context_t *task_schedule(void);
 task_context_t *task_tick(void);
 task_context_t *task_yield(void);
