@@ -19,7 +19,8 @@ typedef enum task_state
 typedef enum task_type
 {
     TASK_TYPE_KERNEL = 0,
-    TASK_TYPE_USER
+    TASK_TYPE_USER,
+    TASK_TYPE_USER_PROCESS
 } task_type_t;
 
 typedef struct task_context
@@ -60,6 +61,13 @@ typedef struct task
     /* Per-task address space (CR3) */
     uint32_t page_directory_phys;
 
+    uint32_t parent_pid;
+    struct task *parent;
+    struct task *first_child;
+    struct task *next_sibling;
+    int32_t waiting_for_pid;
+    int *waiting_status;
+
     uint32_t wake_tick;
     int32_t exit_status;
 
@@ -72,7 +80,22 @@ typedef struct task
 void task_init(void);
 task_t *task_create(void (*entry_point)(void));
 task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size);
-task_t *task_create_user_from_elf(const void *elf_data, size_t elf_size, uint32_t *user_stack_top, uint32_t user_stack_size);
+task_t *task_create_user_from_elf(const void *elf_data,
+                                  size_t elf_size,
+                                  uint32_t *user_stack_top,
+                                  uint32_t user_stack_size,
+                                  const char *const argv[],
+                                  const char *const envp[]);
+task_t *task_alloc(void);
+void task_enqueue(task_t *task);
+void task_add_child(task_t *parent, task_t *child);
+void task_remove_child(task_t *child);
+task_t *task_find_child(task_t *parent, int pid);
+int task_replace_process_image(task_t *task,
+                               const void *elf_data,
+                               size_t elf_size,
+                               const char *const argv[],
+                               const char *const envp[]);
 task_context_t *task_schedule(void);
 task_context_t *task_tick(void);
 task_context_t *task_yield(void);

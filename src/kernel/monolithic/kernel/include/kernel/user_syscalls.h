@@ -125,6 +125,47 @@ static inline void user_exit(int status)
     }
 }
 
+static inline int user_fork(void)
+{
+    register uint32_t eax asm("eax") = SYS_FORK;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 :
+                 : "memory");
+
+    return (int)eax;
+}
+
+static inline int user_exec(const char *path, const char *const argv[], const char *const envp[])
+{
+    register uint32_t eax asm("eax") = SYS_EXEC;
+    register const char *ebx asm("ebx") = path;
+    register const char *const *ecx asm("ecx") = argv;
+    register const char *const *edx asm("edx") = envp;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx), "c"(ecx), "d"(edx)
+                 : "memory");
+
+    return (int)eax;
+}
+
+static inline int user_wait(int pid, int *status)
+{
+    register uint32_t eax asm("eax") = SYS_WAIT;
+    register int ebx asm("ebx") = pid;
+    register int *ecx asm("ecx") = status;
+
+    asm volatile("int $0x80"
+                 : "+a"(eax)
+                 : "b"(ebx), "c"(ecx)
+                 : "memory");
+
+    return (int)eax;
+}
+
 static inline void *user_alloc(uint32_t size)
 {
     register uint32_t eax asm("eax") = SYS_ALLOC;
