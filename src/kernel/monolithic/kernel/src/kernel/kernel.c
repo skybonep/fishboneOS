@@ -24,6 +24,7 @@
 #include <kernel/info.h>
 #include <kernel/task.h>
 #include <kernel/cpu.h>
+#include <kernel/fat16.h>
 
 #include <kernel/menu.h>
 #include <kernel/menu_renderer.h>
@@ -149,49 +150,103 @@ static void kernel_dispatch_periodic_services(void)
 	}
 }
 
-static void kernel_idle(void)
+static int kernel_start_init(void)
+{
+	printk(LOG_INFO, "kernel_start_init: entered function");
+	// Mount FAT16 filesystem first
+	static fat16_fs_t fs;
+	int mount_result = fat16_mount(&fs, 0);
+	if (mount_result < 0)
+	{
+		printk(LOG_ERROR, "Failed to mount FAT16 filesystem in init: %d", mount_result);
+		return -1;
+	}
+	printk(LOG_INFO, "FAT16 filesystem mounted for init");
+
+	// Load init.bin from disk and start it as PID 1
+	printk(LOG_INFO, "About to call fat16_open");
+	int fd = fat16_open(NULL, "/init.bin");
+	if (fd < 0)
+	{
+		printk(LOG_ERROR, "Failed to open /init.bin: %d", fd);
+		return -1;
+	}
+	printk(LOG_INFO, "Opened /init.bin file descriptor: %d", fd);
+
+	return -1; // Stop here for now
+}
+
+static void test_function(void)
+{
+	static fat16_fs_t fs;
+	int result = fat16_mount(&fs, 0);
+	printk(LOG_INFO, "test_function: fat16_mount returned %d", result);
+}
+
+void kernel_idle(void)
 {
 	uint32_t frame_counter = 0;
 	uint32_t last_frame_tick = 0;
 	const uint32_t FRAME_DELAY_TICKS = 2; // ~20 FPS at 100Hz timer (allows rendering only every ~2 ticks)
 
 	kernel_initialize_runtime();
-	printk(LOG_INFO, "Kernel runtime: entering main loop with menu renderer");
 
-	Menu *menu = get_main_menu();
-	if (menu == NULL)
+	printk(LOG_INFO, "Kernel runtime: starting init system");
+
+	// Try to call a simple test function
+	test_function();
+
+	// Try to start init instead of menu
+	if (kernel_start_init() == 0)
 	{
-		printk(LOG_ERROR, "Failed to get main menu");
+		printk(LOG_INFO, "Init system started successfully");
+		// Monitor init process
 		while (1)
-			asm volatile("hlt");
-	}
-
-	while (1)
-	{
-		// Implement frame rate limiting to reduce flicker
-		uint32_t current_tick = timer_get_ticks();
-		if (current_tick - last_frame_tick >= FRAME_DELAY_TICKS)
 		{
-			// Update menu renderer for one frame
-			menu = menu_renderer_update(menu);
-			last_frame_tick = current_tick;
-			frame_counter++;
+			kernel_dispatch_periodic_services();
+			task_yield();
 		}
+	}
+	else
+	{
+		// Fallback to menu system
+		printk(LOG_INFO, "Failed to start init, falling back to menu system");
 
-		// If menu returns NULL, the menu system has exited
+		Menu *menu = get_main_menu();
 		if (menu == NULL)
 		{
-			printk(LOG_INFO, "Menu exited, shutting down");
+			printk(LOG_ERROR, "Failed to get main menu");
 			while (1)
-			{
 				asm volatile("hlt");
-			}
 		}
 
-		kernel_dispatch_periodic_services();
+		while (1)
+		{
+			// Implement frame rate limiting to reduce flicker
+			uint32_t current_tick = timer_get_ticks();
+			if (current_tick - last_frame_tick >= FRAME_DELAY_TICKS)
+			{
+				// Update menu renderer for one frame
+				menu = menu_renderer_update(menu);
+				last_frame_tick = current_tick;
+				frame_counter++;
+			}
 
-		// Yield to allow other tasks to run
-		task_yield();
+			// If menu returns NULL, the menu system has exited
+			if (menu == NULL)
+			{
+				printk(LOG_INFO, "Menu exited, shutting down");
+				while (1)
+				{
+					asm volatile("hlt");
+				}
+			}
+
+			kernel_dispatch_periodic_services();
+
+			// Yield to allow other tasks to run
+			task_yield();
+		}
 	}
 }
 

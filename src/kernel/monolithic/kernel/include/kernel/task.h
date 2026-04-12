@@ -86,6 +86,12 @@ task_t *task_create_user_from_elf(const void *elf_data,
                                   uint32_t user_stack_size,
                                   const char *const argv[],
                                   const char *const envp[]);
+task_t *task_create_user_from_binary(const void *binary_data,
+                                     size_t binary_size,
+                                     uint32_t *user_stack_top,
+                                     uint32_t user_stack_size,
+                                     const char *const argv[],
+                                     const char *const envp[]);
 task_t *task_alloc(void);
 void task_enqueue(task_t *task);
 void task_add_child(task_t *parent, task_t *child);
