@@ -10,6 +10,7 @@
 #include <kernel/task.h>
 #include <kernel/tty.h>
 #include <kernel/log.h>
+#include <kernel/module.h>
 
 static uint32_t syscall_get_u32_arg(uint32_t *saved_regs, int arg_index)
 {
@@ -162,6 +163,26 @@ int sys_yield(void)
     return 0;
 }
 
+int sys_load_module(const void *elf_data, size_t elf_size)
+{
+    if (elf_data == NULL || elf_size == 0)
+    {
+        return -1;
+    }
+
+    return module_load(elf_data, elf_size);
+}
+
+int sys_unload_module(const char *name)
+{
+    if (name == NULL)
+    {
+        return -1;
+    }
+
+    return module_unload(name);
+}
+
 static task_context_t *syscall_handle_write(uint32_t *saved_regs)
 {
     int fd = (int)syscall_get_u32_arg(saved_regs, 0);
@@ -247,6 +268,25 @@ static task_context_t *syscall_handle_yield(uint32_t *saved_regs)
     return task_yield();
 }
 
+static task_context_t *syscall_handle_load_module(uint32_t *saved_regs)
+{
+    const void *elf_data = (const void *)(uintptr_t)syscall_get_u32_arg(saved_regs, 0);
+    size_t elf_size = (size_t)syscall_get_u32_arg(saved_regs, 1);
+    printk(LOG_DEBUG, "syscall_load_module: data=%p size=%u", elf_data, elf_size);
+    int result = sys_load_module(elf_data, elf_size);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
+static task_context_t *syscall_handle_unload_module(uint32_t *saved_regs)
+{
+    const char *name = (const char *)(uintptr_t)syscall_get_u32_arg(saved_regs, 0);
+    printk(LOG_DEBUG, "syscall_unload_module: name=%s", name ? name : "(null)");
+    int result = sys_unload_module(name);
+    syscall_set_return_value(saved_regs, (uint32_t)result);
+    return NULL;
+}
+
 task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs)
 {
     if (interrupt != 128 || saved_regs == NULL)
@@ -278,6 +318,10 @@ task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs)
         return syscall_handle_close(saved_regs);
     case SYS_YIELD:
         return syscall_handle_yield(saved_regs);
+    case SYS_LOAD_MODULE:
+        return syscall_handle_load_module(saved_regs);
+    case SYS_UNLOAD_MODULE:
+        return syscall_handle_unload_module(saved_regs);
     default:
         syscall_set_return_value(saved_regs, (uint32_t)-1);
         return NULL;

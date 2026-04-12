@@ -14,6 +14,8 @@
 #define SYS_READ_FILE 8
 #define SYS_CLOSE 9
 #define SYS_WRITE_FILE 10
+#define SYS_LOAD_MODULE 11
+#define SYS_UNLOAD_MODULE 12
 
 task_context_t *syscall_dispatch(uint32_t interrupt, uint32_t *saved_regs);
 int sys_write(int fd, const char *buf, uint32_t len);
@@ -26,5 +28,7 @@ int sys_open(const char *path);
 int sys_read_file(int fd, uint8_t *buffer, uint32_t count);
 int sys_write_file(int fd, const uint8_t *buffer, uint32_t count);
 int sys_close(int fd);
+int sys_load_module(const void *elf_data, size_t elf_size);
+int sys_unload_module(const char *name);
 
 #endif /* KERNEL_SYSCALL_H */

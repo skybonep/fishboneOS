@@ -2,6 +2,7 @@ CROSS_BIN := $(HOME)/opt/cross/bin
 KERNEL_DIR := kernel/src/kernel/kernel
 ARCH_DIR := kernel/src/kernel/arch/i386
 LIBC_DIR := libc
+MODULES_DIR := modules
 
 DEBUG ?= 0
 
@@ -10,6 +11,7 @@ LIBC_INC_DIR := libc/include
 
 CC := $(CROSS_BIN)/i686-elf-gcc
 AS := $(CROSS_BIN)/i686-elf-as
+OBJCOPY := $(CROSS_BIN)/i686-elf-objcopy
 GRUB := grub-mkrescue
 
 CPPFLAGS := -I$(KERNEL_INC_DIR) -I$(LIBC_INC_DIR) -D__is_libk
@@ -28,10 +30,17 @@ SOURCES := $(filter-out kernel/src/kernel/user_init.c, $(SOURCES))
 OBJS := $(patsubst %.c,%.o,$(SOURCES))
 OBJS := $(patsubst %.s,%.o,$(OBJS))
 
+PROJECT_ROOT := $(abspath ../../..)
+BUILD_DIR    := $(PROJECT_ROOT)/build
+
+# Module build targets
+MODULE_SOURCES := $(MODULES_DIR)/hello_module.c
+MODULE_OBJS := $(patsubst %.c,%.o,$(MODULE_SOURCES))
+EMBEDDED_SRC := $(BUILD_DIR)/modules/embedded_modules.c
+EMBEDDED_OBJ := $(BUILD_DIR)/modules/embedded_modules.o
+
 LINKER := linker.ld
 ISO := monolithic.iso
-PROJECT_ROOT := ../../..
-BUILD_DIR    := $(PROJECT_ROOT)/build
 KERNEL_BIN   := $(BUILD_DIR)/kernel/monolithic.bin
 ISO_STAGING  := $(BUILD_DIR)/iso_staging
 DIST_DIR     := $(BUILD_DIR)/dist
@@ -58,8 +67,8 @@ $(ISO_IMAGE): $(KERNEL_BIN) | $(DIST_DIR)
 $(DIST_DIR):
 	mkdir -p $@
 
-$(KERNEL_BIN): $(OBJS) $(LINKER) | $(BUILD_DIR)/kernel
-	$(CC) -T $(LINKER) -o $@ $(OBJS) $(LDFLAGS)
+$(KERNEL_BIN): $(OBJS) $(EMBEDDED_OBJ) $(LINKER) | $(BUILD_DIR)/kernel
+	$(CC) -T $(LINKER) -o $@ $(OBJS) $(EMBEDDED_OBJ) $(LDFLAGS)
 
 $(BUILD_DIR)/kernel:
 	mkdir -p $@
@@ -76,6 +85,21 @@ $(KERNEL_DIR)/%.o: $(KERNEL_DIR)/%.c
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
 
+$(MODULES_DIR)/%.o: $(MODULES_DIR)/%.c
+	$(CC) -c -std=gnu99 -ffreestanding -O2 -Wall -Wextra -I$(KERNEL_INC_DIR) -I$(LIBC_INC_DIR) $< -o $@
+
+$(EMBEDDED_SRC): $(MODULE_OBJS)
+	mkdir -p $(BUILD_DIR)/modules
+	printf '/* Auto-generated embedded module data */\n' > $@
+	printf '#include <stdint.h>\n\n' >> $@
+	sh -c 'xxd -i "$$1" | sed -e "1s/^unsigned char .*$$/const uint8_t embedded_hello_module[] = {/" -e "s/^unsigned int .*_len = .*$$/const uint32_t embedded_hello_module_size = sizeof(embedded_hello_module);/" >> "$$2"' _ "$<" "$@"
+
+$(EMBEDDED_OBJ): $(EMBEDDED_SRC)
+	$(CC) -c $(CFLAGS) $< -o $@
+
 clean:
 	rm -f $(OBJS)
+	rm -f $(MODULE_OBJS)
+	rm -f $(MODULE_BIN)
+	rm -f $(EMBEDDED_OBJ)
 	rm -rf $(BUILD_DIR)
