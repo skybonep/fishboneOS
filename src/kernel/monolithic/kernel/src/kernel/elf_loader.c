@@ -187,14 +187,6 @@ static const char *section_name(const Elf32_Shdr *sh, const char *shstrtab, uint
     return shstrtab + sh->sh_name;
 }
 
-static const char *strtab_string(const char *strtab, uint32_t strtab_size, uint32_t offset)
-{
-    if (strtab == NULL || offset >= strtab_size)
-        return NULL;
-
-    return strtab + offset;
-}
-
 static uint32_t page_align_down(uint32_t addr)
 {
     return addr & ~(PAGE_SIZE - 1);

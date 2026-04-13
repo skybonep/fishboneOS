@@ -71,6 +71,46 @@ void vmm_map_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr, uint32_t paddr, uin
     load_cr3(old_cr3);
 }
 
+void vmm_unmap_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr)
+{
+    uint32_t old_cr3 = read_cr3();
+    load_cr3(pdt_phys);
+    vmm_unmap_page(vaddr);
+    load_cr3(old_cr3);
+}
+
+void vmm_free_page_directory(uint32_t pdt_phys)
+{
+    if (pdt_phys == 0 || pdt_phys == kernel_pdt_phys)
+        return;
+
+    uint32_t old_cr3 = read_cr3();
+    load_cr3(pdt_phys);
+
+    uint32_t *pdt = (uint32_t *)VMM_PDT_VIRTUAL_ADDR;
+    uint32_t kernel_base_pde = KERNEL_VIRT_BASE >> 22;
+
+    for (uint32_t pde_idx = 0; pde_idx < kernel_base_pde; ++pde_idx)
+    {
+        if (!(pdt[pde_idx] & PAGE_PRESENT))
+            continue;
+
+        uint32_t pt_phys = pdt[pde_idx] & 0xFFFFF000;
+        if (pt_phys != 0)
+        {
+            pdt[pde_idx] = 0;
+            pmm_free_frame((void *)(uintptr_t)pt_phys);
+        }
+    }
+
+    // Remove recursive mapping before we switch away
+    pdt[1023] = 0;
+    invalidate_tlb_entry(VMM_PDT_VIRTUAL_ADDR);
+
+    load_cr3(old_cr3);
+    pmm_free_frame((void *)(uintptr_t)pdt_phys);
+}
+
 void vmm_map_kernel_page(uint32_t vaddr, uint32_t paddr)
 {
     vmm_map_page(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE);

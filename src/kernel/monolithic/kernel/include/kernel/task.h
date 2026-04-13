@@ -6,6 +6,7 @@
 #define TASK_MAX 16
 #define TASK_QUANTUM_DEFAULT 5
 #define MAX_USER_CODE_PAGES 16
+#define MAX_USER_HEAP_PAGES 16
 
 typedef enum task_state
 {
@@ -57,6 +58,10 @@ typedef struct task
     uint32_t user_code_paddr;
     uint32_t user_code_frame_count;
     uint32_t user_code_frames[MAX_USER_CODE_PAGES];
+    uint32_t user_heap_start;
+    uint32_t user_heap_size;
+    uint32_t user_heap_frame_count;
+    uint32_t user_heap_frames[MAX_USER_HEAP_PAGES];
 
     /* Per-task address space (CR3) */
     uint32_t page_directory_phys;
@@ -108,6 +113,8 @@ task_context_t *task_yield(void);
 task_t *task_get_current(void);
 void task_set_current(task_t *task);
 void task_save_current_context(void *cpu_state_ptr);
+void task_free_stack(task_t *task);
+void task_cleanup_user_resources(task_t *task);
 void task_exit(int status);
 void task_terminate(int status);
 task_t *task_get_at_index(uint32_t index);

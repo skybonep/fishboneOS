@@ -41,17 +41,18 @@ static void syscall_set_return_value(uint32_t *saved_regs, uint32_t value)
 
 static bool validate_user_pointer(const void *ptr, size_t size)
 {
-    if (ptr == NULL || size == 0)
-        return true; // NULL pointers are valid for some cases, zero size is always valid
+    if (ptr == NULL)
+        return size == 0;
+
+    if (size == 0)
+        return true;
 
     uint32_t start_vaddr = (uint32_t)ptr;
     uint32_t end_vaddr = start_vaddr + size - 1;
 
-    // Check if addresses are in user space
     if (start_vaddr >= KERNEL_VIRT_BASE || end_vaddr >= KERNEL_VIRT_BASE)
         return false;
 
-    // Check if all pages in the range are mapped
     for (uint32_t vaddr = start_vaddr & ~(PAGE_SIZE - 1); vaddr <= end_vaddr; vaddr += PAGE_SIZE)
     {
         if (vmm_get_phys_addr(vaddr) == 0)
@@ -64,90 +65,69 @@ static bool validate_user_pointer(const void *ptr, size_t size)
 static bool validate_user_string(const char *str)
 {
     if (str == NULL)
-        return true; // NULL strings are valid for some cases
+        return true;
 
     uint32_t vaddr = (uint32_t)str;
-
-    // Check if starting address is in user space
     if (vaddr >= KERNEL_VIRT_BASE)
         return false;
 
-    // Walk through the string, checking each page
-    while (true)
+    uint32_t max_length = 4096; // limit string checks to one page for safety
+    while (max_length-- > 0)
     {
-        // Check if current page is mapped
         uint32_t page_start = vaddr & ~(PAGE_SIZE - 1);
         if (vmm_get_phys_addr(page_start) == 0)
             return false;
 
-        // Find null terminator within this page
-        uint32_t page_end = page_start + PAGE_SIZE;
-        uint32_t max_check = (vaddr + 256 < page_end) ? vaddr + 256 : page_end; // Limit search to reasonable length
+        const char *p = (const char *)vaddr;
+        if (*p == '\0')
+            return true;
 
-        for (; vaddr < max_check; vaddr++)
-        {
-            // We can't directly dereference user pointers here, but we assume
-            // the string is valid if the pages are mapped. In a real implementation,
-            // we'd need to temporarily map the page to check for null terminator.
-            // For now, we'll just validate that the memory range is accessible.
-        }
-
-        // If we haven't found null terminator and reached page boundary,
-        // continue to next page (but limit total string length)
-        if (vaddr >= max_check)
-            return false; // String too long or not null-terminated within reasonable bounds
+        vaddr++;
+        if (vaddr >= KERNEL_VIRT_BASE)
+            return false;
     }
 
-    return true;
+    return false;
 }
 
 static bool validate_user_pointer_array(const void *const *ptrs)
 {
     if (ptrs == NULL)
-        return true; // NULL arrays are valid for some cases
+        return true;
 
     uint32_t array_vaddr = (uint32_t)ptrs;
-
-    // Check if array pointer is in user space
     if (array_vaddr >= KERNEL_VIRT_BASE)
         return false;
 
-    // Check if array page is mapped
-    uint32_t page_start = array_vaddr & ~(PAGE_SIZE - 1);
-    if (vmm_get_phys_addr(page_start) == 0)
-        return false;
-
-    // For simplicity, we'll validate the first few pointers in the array
-    // In a real implementation, we'd need to walk through all pointers until NULL
-    const void *const *current = ptrs;
-    for (int i = 0; i < 32; i++) // Limit to reasonable number of arguments
+    for (int i = 0; i < 32; ++i)
     {
-        // Check if current pointer position is still in mapped memory
-        uint32_t current_vaddr = (uint32_t)current;
+        uint32_t current_vaddr = (uint32_t)ptrs;
         if (current_vaddr >= KERNEL_VIRT_BASE)
-            break;
-
-        uint32_t current_page = current_vaddr & ~(PAGE_SIZE - 1);
-        if (vmm_get_phys_addr(current_page) == 0)
             return false;
 
-        // If this pointer is NULL, end of array
-        if (*current == NULL)
-            break;
-
-        // Validate the pointed-to string/pointer
-        if (!validate_user_string((const char *)*current))
+        if (!validate_user_pointer(ptrs, sizeof(void *)))
             return false;
 
-        current++;
+        if (*ptrs == NULL)
+            return true;
+
+        if (!validate_user_string((const char *)*ptrs))
+            return false;
+
+        ptrs++;
     }
 
-    return true;
+    return false;
 }
 
 int sys_write(int fd, const char *buf, uint32_t len)
 {
-    if (buf == NULL)
+    if (buf == NULL || len == 0)
+    {
+        return -1;
+    }
+
+    if (!validate_user_pointer(buf, len))
     {
         return -1;
     }
@@ -184,7 +164,46 @@ void *sys_alloc(uint32_t size)
         return NULL;
     }
 
-    return kmalloc((size_t)size);
+    task_t *current = task_get_current();
+    if (current == NULL || current->type != TASK_TYPE_USER_PROCESS)
+    {
+        return NULL;
+    }
+
+    uint32_t aligned_size = (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint32_t pages_needed = aligned_size / PAGE_SIZE;
+    if (pages_needed == 0 || current->user_heap_frame_count + pages_needed > MAX_USER_HEAP_PAGES)
+    {
+        return NULL;
+    }
+
+    uint32_t base_vaddr = current->user_heap_start + current->user_heap_size;
+    uint32_t allocated = 0;
+
+    for (uint32_t i = 0; i < pages_needed; ++i)
+    {
+        uint32_t frame = (uint32_t)pmm_alloc_frame();
+        if (frame == 0)
+        {
+            for (uint32_t j = 0; j < allocated; ++j)
+            {
+                uint32_t heap_vaddr = current->user_heap_start + (current->user_heap_frame_count + j) * PAGE_SIZE;
+                vmm_unmap_page_for_pdt(current->page_directory_phys, heap_vaddr);
+                pmm_free_frame((void *)(uintptr_t)current->user_heap_frames[current->user_heap_frame_count + j]);
+                current->user_heap_frames[current->user_heap_frame_count + j] = 0;
+            }
+            return NULL;
+        }
+
+        current->user_heap_frames[current->user_heap_frame_count + i] = frame;
+        uint32_t heap_vaddr = current->user_heap_start + (current->user_heap_frame_count + i) * PAGE_SIZE;
+        vmm_map_page_for_pdt(current->page_directory_phys, heap_vaddr, frame, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+        allocated++;
+    }
+
+    current->user_heap_frame_count += allocated;
+    current->user_heap_size += allocated * PAGE_SIZE;
+    return (void *)(uintptr_t)base_vaddr;
 }
 
 int sys_sleep(uint32_t ms)
@@ -238,6 +257,11 @@ int sys_open(const char *path)
         return -1;
     }
 
+    if (!validate_user_string(path))
+    {
+        return -1;
+    }
+
     return fat16_open(NULL, path);
 }
 
@@ -248,12 +272,22 @@ int sys_read_file(int fd, uint8_t *buffer, uint32_t count)
         return -1;
     }
 
+    if (!validate_user_pointer(buffer, count))
+    {
+        return -1;
+    }
+
     return fat16_read(fd, buffer, count);
 }
 
 int sys_write_file(int fd, const uint8_t *buffer, uint32_t count)
 {
     if (buffer == NULL || count == 0)
+    {
+        return -1;
+    }
+
+    if (!validate_user_pointer(buffer, count))
     {
         return -1;
     }
@@ -348,7 +382,7 @@ int sys_fork(void)
         vmm_unmap_page(temp_dst);
 
         // Map in child's PDT
-        uint32_t vaddr = current->user_code_paddr + i * PAGE_SIZE;
+        uint32_t vaddr = 0x00400000 + i * PAGE_SIZE;
         vmm_map_page_for_pdt(child_pdt, vaddr, new_frame, PAGE_PRESENT | PAGE_USER);
     }
 
@@ -359,7 +393,15 @@ int sys_fork(void)
         // cleanup
         for (uint32_t i = 0; i < child->user_code_frame_count; ++i)
         {
+            uint32_t vaddr = 0x00400000 + i * PAGE_SIZE;
+            vmm_unmap_page_for_pdt(child_pdt, vaddr);
             pmm_free_frame((void *)(uintptr_t)child->user_code_frames[i]);
+        }
+        for (uint32_t i = 0; i < child->user_heap_frame_count; ++i)
+        {
+            uint32_t heap_vaddr = current->user_heap_start + i * PAGE_SIZE;
+            vmm_unmap_page_for_pdt(child_pdt, heap_vaddr);
+            pmm_free_frame((void *)(uintptr_t)child->user_heap_frames[i]);
         }
         child->state = TASK_UNUSED;
         return -1;
@@ -382,8 +424,51 @@ int sys_fork(void)
     vmm_unmap_page(temp_dst);
 
     // Map stack
-    uint32_t stack_vaddr = (uint32_t)current->user_stack_top - current->user_stack_size + PAGE_SIZE;
+    uint32_t stack_vaddr = (uint32_t)current->user_stack_top - PAGE_SIZE;
     vmm_map_page_for_pdt(child_pdt, stack_vaddr, child_stack_frame, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
+    // Copy user heap pages
+    child->user_heap_start = current->user_heap_start;
+    child->user_heap_size = current->user_heap_size;
+    child->user_heap_frame_count = current->user_heap_frame_count;
+    for (uint32_t i = 0; i < current->user_heap_frame_count; ++i)
+    {
+        uint32_t new_heap_frame = (uint32_t)pmm_alloc_frame();
+        if (new_heap_frame == 0)
+        {
+            for (uint32_t j = 0; j < current->user_code_frame_count; ++j)
+            {
+                pmm_free_frame((void *)(uintptr_t)child->user_code_frames[j]);
+            }
+            for (uint32_t j = 0; j < i; ++j)
+            {
+                uint32_t heap_vaddr = current->user_heap_start + j * PAGE_SIZE;
+                vmm_unmap_page_for_pdt(child_pdt, heap_vaddr);
+                pmm_free_frame((void *)(uintptr_t)child->user_heap_frames[j]);
+            }
+            pmm_free_frame((void *)child->user_stack_paddr);
+            child->state = TASK_UNUSED;
+            return -1;
+        }
+
+        child->user_heap_frames[i] = new_heap_frame;
+
+        uint32_t temp_src_heap = VMM_TEMP_PAGE;
+        vmm_map_kernel_page(temp_src_heap, current->user_heap_frames[i]);
+        uint32_t temp_dst_heap = VMM_TEMP_PAGE - PAGE_SIZE;
+        vmm_map_kernel_page(temp_dst_heap, new_heap_frame);
+        uint8_t *src_heap = (uint8_t *)temp_src_heap;
+        uint8_t *dst_heap = (uint8_t *)temp_dst_heap;
+        for (uint32_t k = 0; k < PAGE_SIZE; ++k)
+        {
+            dst_heap[k] = src_heap[k];
+        }
+        vmm_unmap_page(temp_src_heap);
+        vmm_unmap_page(temp_dst_heap);
+
+        uint32_t heap_vaddr = current->user_heap_start + i * PAGE_SIZE;
+        vmm_map_page_for_pdt(child_pdt, heap_vaddr, new_heap_frame, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    }
 
     // Set up child
     child->type = TASK_TYPE_USER_PROCESS;
@@ -483,30 +568,26 @@ int sys_wait(int pid, int *status)
         *status = child->exit_status;
         int child_pid = child->pid;
 
-        // Clean process resources when reaped
-        if (child->user_stack_paddr != 0)
+        // Free user-space heap, stack, and code pages
+        task_cleanup_user_resources(child);
+
+        // Free per-task page tables and page directory
+        if (child->page_directory_phys != 0 && child->page_directory_phys != vmm_get_kernel_pdt_phys())
         {
-            pmm_free_frame((void *)child->user_stack_paddr);
-            child->user_stack_paddr = 0;
+            vmm_free_page_directory(child->page_directory_phys);
+            child->page_directory_phys = vmm_get_kernel_pdt_phys();
         }
 
-        if (child->user_code_paddr != 0)
-        {
-            pmm_free_frame((void *)child->user_code_paddr);
-            child->user_code_paddr = 0;
-        }
-
-        for (uint32_t i = 0; i < child->user_code_frame_count; ++i)
-        {
-            if (child->user_code_frames[i] != 0)
-            {
-                pmm_free_frame((void *)(uintptr_t)child->user_code_frames[i]);
-                child->user_code_frames[i] = 0;
-            }
-        }
-        child->user_code_frame_count = 0;
+        // Free the kernel stack slot assigned to this task
+        task_free_stack(child);
 
         task_remove_child(child);
+        child->type = TASK_TYPE_KERNEL;
+        child->parent = NULL;
+        child->parent_pid = 0;
+        child->next_sibling = NULL;
+        child->waiting_for_pid = -1;
+        child->waiting_status = NULL;
         child->state = TASK_UNUSED;
         return child_pid;
     }

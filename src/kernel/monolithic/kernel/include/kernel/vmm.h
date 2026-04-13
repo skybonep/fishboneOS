@@ -36,6 +36,8 @@ uint32_t vmm_get_kernel_pdt_phys(void);
 uint32_t vmm_clone_kernel_mappings(void);
 
 void vmm_map_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr, uint32_t paddr, uint32_t flags);
+void vmm_unmap_page_for_pdt(uint32_t pdt_phys, uint32_t vaddr);
+void vmm_free_page_directory(uint32_t pdt_phys);
 
 /**
  * vmm_map_kernel_page:
