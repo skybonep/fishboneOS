@@ -9,6 +9,7 @@
 #include <kernel/vmm.h>
 #include <kernel/pmm.h>
 #include <kernel/paging.h>
+#include <kernel/elf_loader.h>
 #include <drivers/timer.h>
 #include <kernel/task.h>
 #include <kernel/log.h>
@@ -31,7 +32,69 @@ static void task_update_tss(void)
     }
 }
 
-static void task_enqueue(task_t *task)
+static void task_init_user_heap_fields(task_t *task)
+{
+    if (task == NULL)
+        return;
+
+    task->user_heap_start = USER_HEAP_START;
+    task->user_heap_size = 0;
+    task->user_heap_frame_count = 0;
+    for (uint32_t i = 0; i < MAX_USER_HEAP_PAGES; ++i)
+    {
+        task->user_heap_frames[i] = 0;
+    }
+}
+
+static void task_unmap_user_page(task_t *task, uint32_t vaddr)
+{
+    if (task == NULL || task->page_directory_phys == 0)
+        return;
+
+    vmm_unmap_page_for_pdt(task->page_directory_phys, vaddr);
+}
+
+void task_cleanup_user_resources(task_t *task)
+{
+    if (task == NULL)
+        return;
+
+    if (task->user_stack_paddr != 0 && task->user_stack_top != NULL && task->user_stack_size != 0)
+    {
+        uint32_t user_stack_vaddr = (uint32_t)task->user_stack_top - task->user_stack_size + PAGE_SIZE;
+        task_unmap_user_page(task, user_stack_vaddr);
+        pmm_free_frame((void *)(uintptr_t)task->user_stack_paddr);
+        task->user_stack_paddr = 0;
+    }
+
+    for (uint32_t i = 0; i < task->user_code_frame_count; ++i)
+    {
+        if (task->user_code_frames[i] != 0)
+        {
+            uint32_t user_code_vaddr = 0x00400000 + i * PAGE_SIZE;
+            task_unmap_user_page(task, user_code_vaddr);
+            pmm_free_frame((void *)(uintptr_t)task->user_code_frames[i]);
+            task->user_code_frames[i] = 0;
+        }
+    }
+    task->user_code_frame_count = 0;
+    task->user_code_paddr = 0;
+
+    for (uint32_t i = 0; i < task->user_heap_frame_count; ++i)
+    {
+        if (task->user_heap_frames[i] != 0)
+        {
+            uint32_t heap_vaddr = task->user_heap_start + i * PAGE_SIZE;
+            task_unmap_user_page(task, heap_vaddr);
+            pmm_free_frame((void *)(uintptr_t)task->user_heap_frames[i]);
+            task->user_heap_frames[i] = 0;
+        }
+    }
+    task->user_heap_frame_count = 0;
+    task->user_heap_size = 0;
+}
+
+void task_enqueue(task_t *task)
 {
     task->next = NULL;
     task->prev = ready_list_tail;
@@ -117,9 +180,12 @@ static task_context_t *task_create_context(task_t *task, void (*entry_point)(voi
     context->eip = (uint32_t)(uintptr_t)entry_point;
     context->eflags = 0x202;
 
-    if (task->type == TASK_TYPE_USER)
+    if (task->type != TASK_TYPE_KERNEL)
     {
-        context->esp = (uint32_t)(uintptr_t)task->user_stack_top - 32;
+        if (context->esp == 0)
+        {
+            context->esp = (uint32_t)(uintptr_t)task->user_stack_top - 32;
+        }
         context->cs = USER_CODE_SEG;
         context->ss = USER_DATA_SEG;
     }
@@ -131,6 +197,176 @@ static task_context_t *task_create_context(task_t *task, void (*entry_point)(voi
     }
 
     return context;
+}
+
+static void task_init_process_fields(task_t *task)
+{
+    task->parent_pid = 0;
+    task->parent = NULL;
+    task->first_child = NULL;
+    task->next_sibling = NULL;
+    task->waiting_for_pid = -1;
+}
+
+void task_add_child(task_t *parent, task_t *child)
+{
+    if (parent == NULL || child == NULL)
+        return;
+
+    child->parent = parent;
+    child->parent_pid = parent->pid;
+    child->next_sibling = parent->first_child;
+    parent->first_child = child;
+}
+
+void task_remove_child(task_t *child)
+{
+    if (child == NULL || child->parent == NULL)
+        return;
+
+    task_t **current = &child->parent->first_child;
+    while (*current != NULL)
+    {
+        if (*current == child)
+        {
+            *current = child->next_sibling;
+            break;
+        }
+        current = &(*current)->next_sibling;
+    }
+
+    child->parent = NULL;
+    child->parent_pid = 0;
+    child->next_sibling = NULL;
+}
+
+task_t *task_find_child(task_t *parent, int pid)
+{
+    if (parent == NULL)
+        return NULL;
+
+    for (task_t *child = parent->first_child; child != NULL; child = child->next_sibling)
+    {
+        if (child->pid == pid)
+            return child;
+    }
+
+    return NULL;
+}
+
+static int task_setup_user_stack(task_t *task, const char *const argv[], const char *const envp[], uint32_t return_address)
+{
+    if (task == NULL || task->user_stack_top == NULL || task->user_stack_size == 0)
+        return -1;
+
+    uint32_t stack_top = (uint32_t)(uintptr_t)task->user_stack_top;
+    uint32_t stack_page_vaddr = stack_top - PAGE_SIZE;
+    uint32_t stack_page_paddr = task->user_stack_paddr;
+    if (stack_page_paddr == 0)
+        return -1;
+
+    vmm_map_kernel_page(VMM_TEMP_PAGE, stack_page_paddr);
+    uint8_t *page = (uint8_t *)VMM_TEMP_PAGE;
+    memset(page, 0, PAGE_SIZE);
+
+    uint32_t offset = PAGE_SIZE;
+    uint32_t arg_ptrs[16];
+    uint32_t env_ptrs[16];
+    uint32_t argc = 0;
+    uint32_t envc = 0;
+
+    if (argv != NULL)
+    {
+        while (argv[argc] != NULL && argc < 16)
+            argc++;
+    }
+
+    if (envp != NULL)
+    {
+        while (envp[envc] != NULL && envc < 16)
+            envc++;
+    }
+
+    for (int i = envc - 1; i >= 0; --i)
+    {
+        uint32_t len = (uint32_t)strlen(envp[i]) + 1;
+        if (len > offset)
+        {
+            vmm_unmap_page(VMM_TEMP_PAGE);
+            return -1;
+        }
+        offset -= len;
+        for (uint32_t byte = 0; byte < len; ++byte)
+        {
+            page[offset + byte] = (uint8_t)envp[i][byte];
+        }
+        env_ptrs[i] = stack_page_vaddr + offset;
+    }
+
+    offset &= ~0x3;
+
+    for (int i = argc - 1; i >= 0; --i)
+    {
+        uint32_t len = (uint32_t)strlen(argv[i]) + 1;
+        if (len > offset)
+        {
+            vmm_unmap_page(VMM_TEMP_PAGE);
+            return -1;
+        }
+        offset -= len;
+        for (uint32_t byte = 0; byte < len; ++byte)
+        {
+            page[offset + byte] = (uint8_t)argv[i][byte];
+        }
+        arg_ptrs[i] = stack_page_vaddr + offset;
+    }
+
+    offset &= ~0x3;
+
+    uint32_t stack_metadata_size = (uint32_t)(envc + 1 + argc + 1) * sizeof(uint32_t) + sizeof(uint32_t);
+    if (return_address != 0)
+    {
+        stack_metadata_size += sizeof(uint32_t);
+    }
+
+    if (stack_metadata_size > offset)
+    {
+        vmm_unmap_page(VMM_TEMP_PAGE);
+        return -1;
+    }
+
+    /* Push envp pointers */
+    offset -= sizeof(uint32_t);
+    *(uint32_t *)(page + offset) = 0;
+    for (int i = envc - 1; i >= 0; --i)
+    {
+        offset -= sizeof(uint32_t);
+        *(uint32_t *)(page + offset) = env_ptrs[i];
+    }
+
+    /* Push argv pointers */
+    offset -= sizeof(uint32_t);
+    *(uint32_t *)(page + offset) = 0;
+    for (int i = argc - 1; i >= 0; --i)
+    {
+        offset -= sizeof(uint32_t);
+        *(uint32_t *)(page + offset) = arg_ptrs[i];
+    }
+
+    /* Push argc */
+    offset -= sizeof(uint32_t);
+    *(uint32_t *)(page + offset) = argc;
+
+    if (return_address != 0)
+    {
+        offset -= sizeof(uint32_t);
+        *(uint32_t *)(page + offset) = return_address;
+    }
+
+    task->context.esp = stack_page_vaddr + offset;
+
+    vmm_unmap_page(VMM_TEMP_PAGE);
+    return 0;
 }
 
 void task_save_current_context(void *cpu_state_ptr)
@@ -154,7 +390,7 @@ void task_save_current_context(void *cpu_state_ptr)
 
     /* The return frame starts after pusha, the interrupt number, and the dummy error code. */
     uint32_t *return_frame = saved_regs + 10;
-    if (current_task->type == TASK_TYPE_USER)
+    if (current_task->type != TASK_TYPE_KERNEL)
     {
         /* For ring3 interrupt entry, the stack frame is: SS, ESP, EFLAGS, CS, EIP. */
         context->ss = return_frame[0];
@@ -197,6 +433,14 @@ static void task_wake_waiting_tasks(void)
     }
 }
 
+static int validate_user_pointer(const void *ptr)
+{
+    uint32_t vaddr = (uint32_t)ptr;
+    if (vaddr >= KERNEL_VIRT_BASE)
+        return 0;
+    return vmm_get_phys_addr(vaddr) != 0;
+}
+
 void task_terminate(int status)
 {
     if (current_task == NULL)
@@ -205,19 +449,24 @@ void task_terminate(int status)
     current_task->exit_status = status;
     current_task->state = TASK_ZOMBIE;
 
-    // Free user resources if user task
-    if (current_task->type == TASK_TYPE_USER)
+    // DO NOT free user resources here - leave for parent to reap via sys_wait
+
+    // Wake parent if waiting
+    if (current_task->parent != NULL && current_task->parent->state == TASK_WAITING &&
+        (current_task->parent->waiting_for_pid == current_task->pid || current_task->parent->waiting_for_pid == -1))
     {
-        if (current_task->user_stack_paddr != 0)
+        uint32_t old_cr3 = read_cr3();
+        load_cr3(current_task->parent->page_directory_phys);
+        if (current_task->parent->waiting_status != NULL && validate_user_pointer(current_task->parent->waiting_status))
         {
-            pmm_free_frame((void *)current_task->user_stack_paddr);
-            current_task->user_stack_paddr = 0;
+            *current_task->parent->waiting_status = current_task->exit_status;
         }
-        if (current_task->user_code_paddr != 0)
-        {
-            pmm_free_frame((void *)current_task->user_code_paddr);
-            current_task->user_code_paddr = 0;
-        }
+        load_cr3(old_cr3);
+        current_task->parent->context.eax = current_task->pid;
+        current_task->parent->waiting_status = NULL;
+        current_task->parent->state = TASK_READY;
+        current_task->parent->waiting_for_pid = 0;
+        task_enqueue(current_task->parent);
     }
 }
 
@@ -247,7 +496,7 @@ static bool task_allocate_stack(task_t *task)
     return false;
 }
 
-static void task_free_stack(task_t *task)
+void task_free_stack(task_t *task)
 {
     if (task->stack_base == NULL)
     {
@@ -267,7 +516,7 @@ static void task_free_stack(task_t *task)
     task->stack_size = 0;
 }
 
-static task_t *task_alloc(void)
+task_t *task_alloc(void)
 {
     for (uint32_t index = 0; index < TASK_MAX; ++index)
     {
@@ -286,6 +535,13 @@ static task_t *task_alloc(void)
             task->user_stack_size = 0;
             task->user_stack_paddr = 0;
             task->user_code_paddr = 0;
+            task->user_code_frame_count = 0;
+            for (uint32_t frame = 0; frame < MAX_USER_CODE_PAGES; ++frame)
+            {
+                task->user_code_frames[frame] = 0;
+            }
+            task_init_user_heap_fields(task);
+            task_init_process_fields(task);
             task->wake_tick = 0;
             task->exit_status = 0;
             task->page_directory_phys = vmm_get_kernel_pdt_phys(); /* default to kernel PD */
@@ -323,6 +579,19 @@ void task_init(void)
         task_table[index].user_stack_size = 0;
         task_table[index].user_stack_paddr = 0;
         task_table[index].user_code_paddr = 0;
+        task_table[index].user_code_frame_count = 0;
+        for (uint32_t frame = 0; frame < MAX_USER_CODE_PAGES; ++frame)
+        {
+            task_table[index].user_code_frames[frame] = 0;
+        }
+        task_table[index].user_heap_start = USER_HEAP_START;
+        task_table[index].user_heap_size = 0;
+        task_table[index].user_heap_frame_count = 0;
+        for (uint32_t frame = 0; frame < MAX_USER_HEAP_PAGES; ++frame)
+        {
+            task_table[index].user_heap_frames[frame] = 0;
+        }
+        task_init_process_fields(&task_table[index]);
         task_table[index].wake_tick = 0;
         task_table[index].exit_status = 0;
         memset(&task_table[index].context, 0, sizeof(task_context_t));
@@ -387,6 +656,7 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
     task->quantum = TASK_QUANTUM_DEFAULT;
 
     uint32_t user_stack_vaddr = (uint32_t)user_stack_top - user_stack_size;
+    uint32_t user_stack_page_vaddr = (uint32_t)user_stack_top - PAGE_SIZE;
 
     printk(LOG_INFO, "task_create_user: pid=%u pd=0x%08x stack=0x%08x size=%u", task->pid, user_pdt, user_stack_vaddr, user_stack_size);
 
@@ -426,11 +696,341 @@ task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, ui
     vmm_unmap_page(kernel_temp_vaddr);
 
     /* map user stack and user code into this task's PD */
-    vmm_map_page_for_pdt(user_pdt, user_stack_vaddr + PAGE_SIZE, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    vmm_map_page_for_pdt(user_pdt, user_stack_page_vaddr, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
     vmm_map_page_for_pdt(user_pdt, user_code_vaddr, user_code_paddr, PAGE_PRESENT | PAGE_USER);
 
     task_create_context(task, entry_point);
     task->context.eip = user_code_vaddr;
+
+    task_enqueue(task);
+    return task;
+}
+
+task_t *task_create_user_from_elf(const void *elf_data,
+                                  size_t elf_size,
+                                  uint32_t *user_stack_top,
+                                  uint32_t user_stack_size,
+                                  const char *const argv[],
+                                  const char *const envp[])
+{
+    if (elf_data == NULL || elf_size == 0 || user_stack_top == NULL || user_stack_size == 0)
+    {
+        return NULL;
+    }
+
+    task_t *task = task_alloc();
+    if (task == NULL)
+    {
+        return NULL;
+    }
+
+    uint32_t user_pdt = vmm_clone_kernel_mappings();
+    if (user_pdt == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task->page_directory_phys = user_pdt;
+    vmm_map_page_for_pdt(user_pdt, 0xB8000, 0xB8000, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
+    task->type = TASK_TYPE_USER_PROCESS;
+    task->user_stack_top = user_stack_top;
+    task->user_stack_size = user_stack_size;
+    task->state = TASK_READY;
+    task->ticks = 0;
+    task->quantum = TASK_QUANTUM_DEFAULT;
+
+    uint32_t user_stack_vaddr = (uint32_t)user_stack_top - user_stack_size;
+    uint32_t user_stack_page_vaddr = (uint32_t)user_stack_top - PAGE_SIZE;
+    printk(LOG_INFO, "task_create_user_from_elf: pid=%u pd=0x%08x stack=0x%08x size=%u", task->pid, user_pdt, user_stack_vaddr, user_stack_size);
+
+    uint32_t user_stack_paddr = (uint32_t)pmm_alloc_frame();
+    if (user_stack_paddr == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task->user_stack_paddr = user_stack_paddr;
+    vmm_map_page_for_pdt(user_pdt, user_stack_page_vaddr, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
+    uint32_t page_frames[MAX_USER_CODE_PAGES];
+    uint32_t page_count = 0;
+    uint32_t entry_point = 0;
+
+    if (load_elf(elf_data, elf_size, user_pdt, &entry_point, page_frames, &page_count) != 0)
+    {
+        pmm_free_frame((void *)task->user_stack_paddr);
+        task->user_stack_paddr = 0;
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task->user_code_frame_count = page_count;
+    task->user_code_paddr = page_count > 0 ? page_frames[0] : 0;
+    for (uint32_t i = 0; i < page_count; ++i)
+    {
+        task->user_code_frames[i] = page_frames[i];
+    }
+
+    if (task_setup_user_stack(task, argv, envp, 0) != 0)
+    {
+        if (task->user_stack_paddr != 0)
+        {
+            pmm_free_frame((void *)task->user_stack_paddr);
+            task->user_stack_paddr = 0;
+        }
+        for (uint32_t i = 0; i < task->user_code_frame_count; ++i)
+        {
+            if (task->user_code_frames[i] != 0)
+                pmm_free_frame((void *)(uintptr_t)task->user_code_frames[i]);
+            task->user_code_frames[i] = 0;
+        }
+        task->user_code_frame_count = 0;
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task_create_context(task, (void (*)(void))(uintptr_t)entry_point);
+    task->context.eip = entry_point;
+
+    task_enqueue(task);
+    return task;
+}
+
+int task_replace_process_image(task_t *task,
+                               const void *elf_data,
+                               size_t elf_size,
+                               const char *const argv[],
+                               const char *const envp[])
+{
+    if (task == NULL || task->type != TASK_TYPE_USER_PROCESS)
+        return -1;
+
+    task_cleanup_user_resources(task);
+
+    uint32_t user_stack_vaddr = (uint32_t)task->user_stack_top - task->user_stack_size;
+    uint32_t user_stack_paddr = (uint32_t)pmm_alloc_frame();
+    if (user_stack_paddr == 0)
+        return -1;
+
+    task->user_stack_paddr = user_stack_paddr;
+    vmm_map_page_for_pdt(task->page_directory_phys, user_stack_vaddr + PAGE_SIZE, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
+    uint32_t page_frames[MAX_USER_CODE_PAGES];
+    uint32_t page_count = 0;
+    uint32_t entry_point = 0;
+
+    if (load_elf(elf_data, elf_size, task->page_directory_phys, &entry_point, page_frames, &page_count) != 0)
+    {
+        pmm_free_frame((void *)task->user_stack_paddr);
+        task->user_stack_paddr = 0;
+        return -1;
+    }
+
+    task->user_code_frame_count = page_count;
+    task->user_code_paddr = page_count > 0 ? page_frames[0] : 0;
+    for (uint32_t i = 0; i < page_count; ++i)
+    {
+        task->user_code_frames[i] = page_frames[i];
+    }
+
+    if (task_setup_user_stack(task, argv, envp, 0) != 0)
+    {
+        if (task->user_stack_paddr != 0)
+        {
+            task->user_stack_paddr = 0;
+        }
+        for (uint32_t i = 0; i < task->user_code_frame_count; ++i)
+        {
+            if (task->user_code_frames[i] != 0)
+                pmm_free_frame((void *)(uintptr_t)task->user_code_frames[i]);
+            task->user_code_frames[i] = 0;
+        }
+        task->user_code_frame_count = 0;
+        return -1;
+    }
+
+    task_create_context(task, (void (*)(void))(uintptr_t)entry_point);
+    task->context.eip = entry_point;
+    return 0;
+}
+
+task_t *task_create_user_from_binary(const void *binary_data,
+                                     size_t binary_size,
+                                     uint32_t *user_stack_top,
+                                     uint32_t user_stack_size,
+                                     const char *const argv[],
+                                     const char *const envp[])
+{
+    if (binary_data == NULL || binary_size == 0 || user_stack_top == NULL || user_stack_size == 0)
+    {
+        return NULL;
+    }
+
+    task_t *task = task_alloc();
+    if (task == NULL)
+    {
+        return NULL;
+    }
+
+    uint32_t user_pdt = vmm_clone_kernel_mappings();
+    if (user_pdt == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task->page_directory_phys = user_pdt;
+    vmm_map_page_for_pdt(user_pdt, 0xB8000, 0xB8000, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
+    task->type = TASK_TYPE_USER_PROCESS;
+    task->user_stack_top = user_stack_top;
+    task->user_stack_size = user_stack_size;
+    task->state = TASK_READY;
+    task->ticks = 0;
+    task->quantum = TASK_QUANTUM_DEFAULT;
+
+    uint32_t user_stack_page_vaddr = (uint32_t)user_stack_top - PAGE_SIZE;
+    uint32_t user_stack_paddr = (uint32_t)pmm_alloc_frame();
+    if (user_stack_paddr == 0)
+    {
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    task->user_stack_paddr = user_stack_paddr;
+    vmm_map_page_for_pdt(user_pdt, user_stack_page_vaddr, user_stack_paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+
+    // Load binary data at user code base (0x400000)
+    uint32_t user_code_vaddr = 0x00400000;
+    uint32_t pages_needed = (binary_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint32_t total_code_pages = pages_needed + 1; // reserve one page for a return/exit stub
+    if (total_code_pages > MAX_USER_CODE_PAGES)
+    {
+        pmm_free_frame((void *)task->user_stack_paddr);
+        task->user_stack_paddr = 0;
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    uint32_t page_frames[MAX_USER_CODE_PAGES];
+    uint32_t page_count = 0;
+
+    // Allocate and map pages for the binary
+    for (uint32_t i = 0; i < pages_needed; ++i)
+    {
+        uint32_t frame = (uint32_t)pmm_alloc_frame();
+        if (frame == 0)
+        {
+            // Cleanup allocated frames
+            for (uint32_t j = 0; j < page_count; ++j)
+            {
+                pmm_free_frame((void *)(uintptr_t)page_frames[j]);
+            }
+            pmm_free_frame((void *)task->user_stack_paddr);
+            task->user_stack_paddr = 0;
+            task->state = TASK_UNUSED;
+            return NULL;
+        }
+
+        page_frames[page_count++] = frame;
+        vmm_map_page_for_pdt(user_pdt, user_code_vaddr + i * PAGE_SIZE, frame, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    }
+
+    // Copy binary data to the allocated pages
+    uint32_t bytes_copied = 0;
+    for (uint32_t i = 0; i < page_count && bytes_copied < binary_size; ++i)
+    {
+        vmm_map_kernel_page(VMM_TEMP_PAGE, page_frames[i]);
+        uint8_t *dest = (uint8_t *)VMM_TEMP_PAGE;
+
+        uint32_t copy_size = PAGE_SIZE;
+        if (bytes_copied + copy_size > binary_size)
+            copy_size = binary_size - bytes_copied;
+
+        memcpy(dest, (const uint8_t *)binary_data + bytes_copied, copy_size);
+        bytes_copied += copy_size;
+
+        vmm_unmap_page(VMM_TEMP_PAGE);
+    }
+
+    uint32_t total_code_frames = page_count + 1;
+    if (total_code_frames > MAX_USER_CODE_PAGES)
+    {
+        for (uint32_t i = 0; i < page_count; ++i)
+        {
+            pmm_free_frame((void *)(uintptr_t)page_frames[i]);
+        }
+        pmm_free_frame((void *)task->user_stack_paddr);
+        task->user_stack_paddr = 0;
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    uint32_t stub_frame = (uint32_t)pmm_alloc_frame();
+    if (stub_frame == 0)
+    {
+        for (uint32_t i = 0; i < page_count; ++i)
+        {
+            pmm_free_frame((void *)(uintptr_t)page_frames[i]);
+        }
+        pmm_free_frame((void *)task->user_stack_paddr);
+        task->user_stack_paddr = 0;
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    page_frames[page_count] = stub_frame;
+    total_code_frames = page_count + 1;
+    for (uint32_t i = 0; i < total_code_frames; ++i)
+    {
+        task->user_code_frames[i] = page_frames[i];
+    }
+
+    task->user_code_frame_count = total_code_frames;
+    task->user_code_paddr = page_count > 0 ? page_frames[0] : 0;
+
+    const uint32_t stub_vaddr = user_code_vaddr + page_count * PAGE_SIZE;
+    vmm_map_page_for_pdt(user_pdt, stub_vaddr, stub_frame, PAGE_PRESENT | PAGE_USER);
+    vmm_map_kernel_page(VMM_TEMP_PAGE, stub_frame);
+    uint8_t *stub = (uint8_t *)VMM_TEMP_PAGE;
+    stub[0] = 0x89; /* mov ebx, eax */
+    stub[1] = 0xD8;
+    stub[2] = 0xB8; /* mov eax, SYS_EXIT (2) */
+    stub[3] = 0x02;
+    stub[4] = 0x00;
+    stub[5] = 0x00;
+    stub[6] = 0x00;
+    stub[7] = 0xCD; /* int 0x80 */
+    stub[8] = 0x80;
+    vmm_unmap_page(VMM_TEMP_PAGE);
+
+    // Setup user stack with arguments
+    if (task_setup_user_stack(task, argv, envp, stub_vaddr) != 0)
+    {
+        // Cleanup
+        if (task->user_stack_paddr != 0)
+        {
+            pmm_free_frame((void *)task->user_stack_paddr);
+            task->user_stack_paddr = 0;
+        }
+        for (uint32_t i = 0; i < task->user_code_frame_count; ++i)
+        {
+            if (task->user_code_frames[i] != 0)
+                pmm_free_frame((void *)(uintptr_t)task->user_code_frames[i]);
+            task->user_code_frames[i] = 0;
+        }
+        task->user_code_frame_count = 0;
+        task->state = TASK_UNUSED;
+        return NULL;
+    }
+
+    // Entry point is the start of the binary
+    uint32_t entry_point = user_code_vaddr;
+    task_create_context(task, (void (*)(void))(uintptr_t)entry_point);
+    task->context.eip = entry_point;
 
     task_enqueue(task);
     return task;

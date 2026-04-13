@@ -40,6 +40,7 @@ static void menu_delete_file(void);
 static void menu_memory_test(void);
 static void menu_shutdown(void);
 static void menu_run_hello_world(void);
+static void menu_run_disk_hello(void);
 
 // Forward declaration for user task function
 extern void hello_world_main(void);
@@ -80,6 +81,7 @@ static MenuItem main_menu_items[] = {
     {"System Information", NULL, &system_info_menu, true},
     {"List Tasks", menu_list_tasks, NULL, true},
     {"Run Hello World Task", menu_run_hello_world, NULL, true},
+    {"Run /HELLO.BIN from disk", menu_run_disk_hello, NULL, true},
     {"Memory Test", menu_memory_test, NULL, true},
     {"Shutdown", menu_shutdown, NULL, true}};
 
@@ -102,7 +104,7 @@ static MenuItem system_info_items[] = {
 static Menu main_menu = {
     .title = "Main Menu",
     .items = main_menu_items,
-    .item_count = 7,
+    .item_count = 8,
     .current_selection = 0,
     .parent = NULL};
 
@@ -428,6 +430,60 @@ static void menu_run_hello_world(void)
     }
 
     // Return to menu - input handling is done by menu renderer
+}
+
+static void menu_run_disk_hello(void)
+{
+    const char *header = "==================== Disk Hello Task ====================\n\n";
+    vga_display_text(header);
+
+    const uint32_t user_stack_top = 0xBFFFE000;
+    const uint32_t user_stack_size = 2 * PAGE_SIZE;
+
+    int fd = fat16_open(NULL, "HELLO.BIN");
+    if (fd < 0)
+    {
+        vga_display_text("ERROR: HELLO.BIN not found in FAT16 root.\n\n");
+        return;
+    }
+
+    uint8_t *buffer = (uint8_t *)kmalloc(PAGE_SIZE * MAX_USER_CODE_PAGES);
+    if (buffer == NULL)
+    {
+        vga_display_text("ERROR: Failed to allocate buffer for HELLO.BIN.\n\n");
+        fat16_close(fd);
+        return;
+    }
+
+    int read_bytes = fat16_read(fd, buffer, PAGE_SIZE * MAX_USER_CODE_PAGES);
+    fat16_close(fd);
+
+    if (read_bytes <= 0)
+    {
+        vga_display_text("ERROR: Failed to read HELLO.BIN from FAT16.\n\n");
+        kfree(buffer);
+        return;
+    }
+
+    task_t *hello_task = task_create_user_from_binary(buffer,
+                                                      (size_t)read_bytes,
+                                                      (uint32_t *)user_stack_top,
+                                                      user_stack_size,
+                                                      NULL,
+                                                      NULL);
+    kfree(buffer);
+    if (hello_task == NULL)
+    {
+        vga_display_text("ERROR: Failed to create HELLO.BIN user task.\n\n");
+        return;
+    }
+
+    char pid_buf[12];
+    itoa(hello_task->pid, pid_buf, 10);
+
+    char result[128];
+    sprintf(result, "Created HELLO.BIN task with PID %s.\n\n", pid_buf);
+    vga_display_text(result);
 }
 
 static void menu_disk_test(void)

@@ -1,30 +1,33 @@
-#ifndef KERNEL_USER_SYSCALLS_H
-#define KERNEL_USER_SYSCALLS_H
+#ifndef USER_SYSCALLS_H
+#define USER_SYSCALLS_H
 
 #include <stdint.h>
 #include <stddef.h>
-#include <kernel/syscall.h>
-#include <kernel/gdt.h>
+
+/* Type definitions */
+typedef int pid_t;
+
+/* Syscall numbers (must match kernel/include/kernel/syscall.h) */
+#define SYS_WRITE 1
+#define SYS_EXIT 2
+#define SYS_FORK 3
+#define SYS_EXEC 4
+#define SYS_WAIT 5
+#define SYS_ALLOC 6
+#define SYS_SLEEP 7
+#define SYS_READ 8
+#define SYS_YIELD 9
+#define SYS_OPEN 10
+#define SYS_READ_FILE 11
+#define SYS_CLOSE 12
+#define SYS_WRITE_FILE 13
 
 /**
- * User-mode syscall wrapper functions
+ * User-space syscall wrapper functions
  * These are inline functions that make int 0x80 syscalls
  */
 
-static inline void user_init_data_segments(void)
-{
-    asm volatile(
-        "movw %0, %%ax\n\t"
-        "movw %%ax, %%ds\n\t"
-        "movw %%ax, %%es\n\t"
-        "movw %%ax, %%fs\n\t"
-        "movw %%ax, %%gs\n\t"
-        :
-        : "i"(USER_DATA_SEG)
-        : "ax");
-}
-
-static inline int user_write(int fd, const char *buf, uint32_t len)
+static inline int write(int fd, const char *buf, uint32_t len)
 {
     register uint32_t eax asm("eax") = SYS_WRITE;
     register uint32_t ebx asm("ebx") = (uint32_t)fd;
@@ -39,7 +42,7 @@ static inline int user_write(int fd, const char *buf, uint32_t len)
     return (int)eax;
 }
 
-static inline int user_read(int fd)
+static inline int read(int fd)
 {
     register uint32_t eax asm("eax") = SYS_READ;
     register uint32_t ebx asm("ebx") = (uint32_t)fd;
@@ -52,7 +55,7 @@ static inline int user_read(int fd)
     return (int)eax;
 }
 
-static inline int user_open(const char *path)
+static inline int open(const char *path)
 {
     register uint32_t eax asm("eax") = SYS_OPEN;
     register const char *ebx asm("ebx") = path;
@@ -65,7 +68,7 @@ static inline int user_open(const char *path)
     return (int)eax;
 }
 
-static inline int user_read_file(int fd, void *buf, uint32_t len)
+static inline int read_file(int fd, void *buf, uint32_t len)
 {
     register uint32_t eax asm("eax") = SYS_READ_FILE;
     register uint32_t ebx asm("ebx") = (uint32_t)fd;
@@ -80,7 +83,7 @@ static inline int user_read_file(int fd, void *buf, uint32_t len)
     return (int)eax;
 }
 
-static inline int user_write_file(int fd, const void *buf, uint32_t len)
+static inline int write_file(int fd, const void *buf, uint32_t len)
 {
     register uint32_t eax asm("eax") = SYS_WRITE_FILE;
     register uint32_t ebx asm("ebx") = (uint32_t)fd;
@@ -95,7 +98,7 @@ static inline int user_write_file(int fd, const void *buf, uint32_t len)
     return (int)eax;
 }
 
-static inline int user_close(int fd)
+static inline int close(int fd)
 {
     register uint32_t eax asm("eax") = SYS_CLOSE;
     register uint32_t ebx asm("ebx") = (uint32_t)fd;
@@ -108,7 +111,7 @@ static inline int user_close(int fd)
     return (int)eax;
 }
 
-static inline void user_exit(int status)
+static inline void exit(int status)
 {
     register uint32_t eax asm("eax") = SYS_EXIT;
     register uint32_t ebx asm("ebx") = (uint32_t)status;
@@ -125,7 +128,7 @@ static inline void user_exit(int status)
     }
 }
 
-static inline int user_fork(void)
+static inline int fork(void)
 {
     register uint32_t eax asm("eax") = SYS_FORK;
 
@@ -137,7 +140,7 @@ static inline int user_fork(void)
     return (int)eax;
 }
 
-static inline int user_exec(const char *path, const char *const argv[], const char *const envp[])
+static inline int exec(const char *path, const char *const argv[], const char *const envp[])
 {
     register uint32_t eax asm("eax") = SYS_EXEC;
     register const char *ebx asm("ebx") = path;
@@ -152,7 +155,7 @@ static inline int user_exec(const char *path, const char *const argv[], const ch
     return (int)eax;
 }
 
-static inline int user_wait(int pid, int *status)
+static inline int wait(int pid, int *status)
 {
     register uint32_t eax asm("eax") = SYS_WAIT;
     register int ebx asm("ebx") = pid;
@@ -166,7 +169,7 @@ static inline int user_wait(int pid, int *status)
     return (int)eax;
 }
 
-static inline void *user_alloc(uint32_t size)
+static inline void *alloc(uint32_t size)
 {
     register uint32_t eax asm("eax") = SYS_ALLOC;
     register uint32_t ebx asm("ebx") = size;
@@ -179,7 +182,7 @@ static inline void *user_alloc(uint32_t size)
     return (void *)(uintptr_t)eax;
 }
 
-static inline int user_sleep(uint32_t ms)
+static inline int sleep(uint32_t ms)
 {
     register uint32_t eax asm("eax") = SYS_SLEEP;
     register uint32_t ebx asm("ebx") = ms;
@@ -192,7 +195,7 @@ static inline int user_sleep(uint32_t ms)
     return (int)eax;
 }
 
-static inline int user_yield(void)
+static inline int yield(void)
 {
     register uint32_t eax asm("eax") = SYS_YIELD;
 
@@ -204,4 +207,4 @@ static inline int user_yield(void)
     return (int)eax;
 }
 
-#endif /* KERNEL_USER_SYSCALLS_H */
+#endif /* USER_SYSCALLS_H */

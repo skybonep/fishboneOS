@@ -5,6 +5,8 @@
 
 #define TASK_MAX 16
 #define TASK_QUANTUM_DEFAULT 5
+#define MAX_USER_CODE_PAGES 16
+#define MAX_USER_HEAP_PAGES 16
 
 typedef enum task_state
 {
@@ -18,7 +20,8 @@ typedef enum task_state
 typedef enum task_type
 {
     TASK_TYPE_KERNEL = 0,
-    TASK_TYPE_USER
+    TASK_TYPE_USER,
+    TASK_TYPE_USER_PROCESS
 } task_type_t;
 
 typedef struct task_context
@@ -53,9 +56,22 @@ typedef struct task
     uint32_t user_stack_size;
     uint32_t user_stack_paddr;
     uint32_t user_code_paddr;
+    uint32_t user_code_frame_count;
+    uint32_t user_code_frames[MAX_USER_CODE_PAGES];
+    uint32_t user_heap_start;
+    uint32_t user_heap_size;
+    uint32_t user_heap_frame_count;
+    uint32_t user_heap_frames[MAX_USER_HEAP_PAGES];
 
     /* Per-task address space (CR3) */
     uint32_t page_directory_phys;
+
+    uint32_t parent_pid;
+    struct task *parent;
+    struct task *first_child;
+    struct task *next_sibling;
+    int32_t waiting_for_pid;
+    int *waiting_status;
 
     uint32_t wake_tick;
     int32_t exit_status;
@@ -69,12 +85,36 @@ typedef struct task
 void task_init(void);
 task_t *task_create(void (*entry_point)(void));
 task_t *task_create_user(void (*entry_point)(void), uint32_t *user_stack_top, uint32_t user_stack_size);
+task_t *task_create_user_from_elf(const void *elf_data,
+                                  size_t elf_size,
+                                  uint32_t *user_stack_top,
+                                  uint32_t user_stack_size,
+                                  const char *const argv[],
+                                  const char *const envp[]);
+task_t *task_create_user_from_binary(const void *binary_data,
+                                     size_t binary_size,
+                                     uint32_t *user_stack_top,
+                                     uint32_t user_stack_size,
+                                     const char *const argv[],
+                                     const char *const envp[]);
+task_t *task_alloc(void);
+void task_enqueue(task_t *task);
+void task_add_child(task_t *parent, task_t *child);
+void task_remove_child(task_t *child);
+task_t *task_find_child(task_t *parent, int pid);
+int task_replace_process_image(task_t *task,
+                               const void *elf_data,
+                               size_t elf_size,
+                               const char *const argv[],
+                               const char *const envp[]);
 task_context_t *task_schedule(void);
 task_context_t *task_tick(void);
 task_context_t *task_yield(void);
 task_t *task_get_current(void);
 void task_set_current(task_t *task);
 void task_save_current_context(void *cpu_state_ptr);
+void task_free_stack(task_t *task);
+void task_cleanup_user_resources(task_t *task);
 void task_exit(int status);
 void task_terminate(int status);
 task_t *task_get_at_index(uint32_t index);

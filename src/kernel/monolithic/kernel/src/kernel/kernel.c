@@ -24,6 +24,7 @@
 #include <kernel/info.h>
 #include <kernel/task.h>
 #include <kernel/cpu.h>
+#include <kernel/fat16.h>
 
 #include <kernel/menu.h>
 #include <kernel/menu_renderer.h>
@@ -149,14 +150,16 @@ static void kernel_dispatch_periodic_services(void)
 	}
 }
 
-static void kernel_idle(void)
+void kernel_idle(void)
 {
 	uint32_t frame_counter = 0;
 	uint32_t last_frame_tick = 0;
 	const uint32_t FRAME_DELAY_TICKS = 2; // ~20 FPS at 100Hz timer (allows rendering only every ~2 ticks)
 
 	kernel_initialize_runtime();
-	printk(LOG_INFO, "Kernel runtime: entering main loop with menu renderer");
+
+	// Fallback to menu system
+	printk(LOG_INFO, "Starting menu system");
 
 	Menu *menu = get_main_menu();
 	if (menu == NULL)
