@@ -22,7 +22,7 @@ AS := $(CROSS_BIN)/i686-elf-as           # Assembler
 LD := $(CROSS_BIN)/i686-elf-ld           # Linker
 
 # Include directories
-INCLUDE_DIRS := -Ikernel/include
+INCLUDE_DIRS := -Ikernel/include -Ilibc/include
 
 # Compiler flags
 # -std=gnu99: Use C99 standard with GNU extensions
@@ -37,6 +37,14 @@ ASFLAGS :=
 
 # Build directories
 BUILD_DIR := $(CURDIR)/build
+
+# auto-discover kernel C sources and assembly sources
+SOURCES := $(shell find kernel libc -type f \( -name '*.c' -o -name '*.s' \) 2>/dev/null)
+
+OBJS := $(patsubst %.c,%.o,$(SOURCES))
+OBJS := $(patsubst %.s,%.o,$(OBJS))
+OBJS := $(patsubst %,$(BUILD_DIR)/obj/%,$(OBJS))
+
 OBJ_DIR := $(BUILD_DIR)/obj
 KERNEL_DIR := $(BUILD_DIR)/kernel
 ISO_STAGING := $(BUILD_DIR)/iso_staging
@@ -44,17 +52,11 @@ DIST_DIR := $(BUILD_DIR)/dist
 KERNEL_BIN := $(KERNEL_DIR)/fishbone.elf
 ISO_IMAGE := $(DIST_DIR)/fishbone.iso
 
-# Source files - list all .s (assembly) and .c (C) files
-SOURCES_S := kernel/src/arch/i386/loader.s kernel/src/arch/i386/io.s
-SOURCES_C := kernel/src/kernel/kernel.c kernel/src/drivers/serial.c
-OBJECTS := $(patsubst %.s,$(BUILD_DIR)/obj/%.o,$(SOURCES_S)) \
-           $(patsubst %.c,$(BUILD_DIR)/obj/%.o,$(SOURCES_C))
-
 # Default target - build everything
 all: $(ISO_IMAGE)
 
 # Link all .o files into the kernel ELF executable
-$(KERNEL_BIN): $(OBJECTS) | $(KERNEL_DIR)
+$(KERNEL_BIN): $(OBJS) | $(KERNEL_DIR)
 	$(LD) -T linker.ld -o $@ $^
 
 # Create a GRUB-bootable ISO image
