@@ -22,7 +22,7 @@ AS := $(CROSS_BIN)/i686-elf-as           # Assembler
 LD := $(CROSS_BIN)/i686-elf-ld           # Linker
 
 # Include directories
-# INCLUDE_DIRS := -I./include
+INCLUDE_DIRS := -Ikernel/include
 
 # Compiler flags
 # -std=gnu99: Use C99 standard with GNU extensions
@@ -30,7 +30,7 @@ LD := $(CROSS_BIN)/i686-elf-ld           # Linker
 # -fno-builtin: Don't use compiler built-in functions
 # -Wall -Wextra: Enable all common warnings
 # -Wno-unused-parameter: Suppress warnings for unused parameters (common in stubs)
-CFLAGS := -std=gnu99 -ffreestanding -fno-builtin -Wall -Wextra -Wno-unused-parameter
+CFLAGS := -std=gnu99 -ffreestanding -fno-builtin -Wall -Wextra -Wno-unused-parameter $(INCLUDE_DIRS)
 
 # Assembler flags (currently empty; could add -g for debug info)
 ASFLAGS := 
@@ -45,8 +45,8 @@ KERNEL_BIN := $(KERNEL_DIR)/fishbone.elf
 ISO_IMAGE := $(DIST_DIR)/fishbone.iso
 
 # Source files - list all .s (assembly) and .c (C) files
-SOURCES_S := src/arch/i386/loader.s
-SOURCES_C := src/kernel/kernel.c
+SOURCES_S := kernel/src/arch/i386/loader.s kernel/src/arch/i386/io.s
+SOURCES_C := kernel/src/kernel/kernel.c kernel/src/drivers/serial.c
 OBJECTS := $(patsubst %.s,$(BUILD_DIR)/obj/%.o,$(SOURCES_S)) \
            $(patsubst %.c,$(BUILD_DIR)/obj/%.o,$(SOURCES_C))
 

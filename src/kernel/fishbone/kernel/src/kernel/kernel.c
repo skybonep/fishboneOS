@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include <drivers/serial.h>
 
 /*
  * kernel_main - C entry point for the kernel
@@ -57,6 +58,12 @@ void kernel_main(unsigned int magic, unsigned int info_ptr)
             asm volatile("hlt");
         }
     }
+
+    /* Initialize serial port for output */
+    serial_init(SERIAL_COM1_BASE);
+
+    /* Print boot message */
+    serial_write(SERIAL_COM1_BASE, "fishboneOS booting\n");
 
     /*
      * If we get here, we were called by GRUB with correct multiboot info.
