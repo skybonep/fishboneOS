@@ -20,7 +20,8 @@
             "name": "fishboneOS-i686",
             "includePath": [
                 "${workspaceFolder}/src/kernel/monolithic/kernel/include",
-                "${workspaceFolder}/src/kernel/monolithic/libc/include"
+                "${workspaceFolder}/src/kernel/monolithic/libc/include",
+                "${workspaceFolder}/src/kernel/fishbone/kernel/include"
             ],
             "defines": [
                 "__is_libk"

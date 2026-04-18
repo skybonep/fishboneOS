@@ -24,13 +24,16 @@ LD := $(CROSS_BIN)/i686-elf-ld           # Linker
 # Include directories
 INCLUDE_DIRS := -Ikernel/include -Ilibc/include
 
+# Debug build flag
+DEBUG ?= 0
+
 # Compiler flags
 # -std=gnu99: Use C99 standard with GNU extensions
 # -ffreestanding: No standard library; we provide our own
 # -fno-builtin: Don't use compiler built-in functions
 # -Wall -Wextra: Enable all common warnings
 # -Wno-unused-parameter: Suppress warnings for unused parameters (common in stubs)
-CFLAGS := -std=gnu99 -ffreestanding -fno-builtin -Wall -Wextra -Wno-unused-parameter $(INCLUDE_DIRS)
+CFLAGS := -std=gnu99 -ffreestanding -fno-builtin -Wall -Wextra -Wno-unused-parameter $(INCLUDE_DIRS) $(if $(filter 1,$(DEBUG)),-DDEBUG,)
 
 # Assembler flags (currently empty; could add -g for debug info)
 ASFLAGS := 
@@ -100,5 +103,20 @@ clean:
 run: $(ISO_IMAGE)
 	qemu-system-i386 -cdrom $(ISO_IMAGE) -serial stdio
 
+debug: DEBUG=1
+debug: all
+
+release: DEBUG=0
+release: all
+
+test:
+	$(MAKE) DEBUG=1 clean $(ISO_IMAGE)
+	@scripts/run_kernel_tests.sh $(ISO_IMAGE)
+
+test-verbose: DEBUG=1
+test-verbose: $(ISO_IMAGE)
+	@scripts/run_kernel_tests.sh $(ISO_IMAGE)
+	@cat build/test.log
+
 # Declare non-file targets
-.PHONY: all clean run
+.PHONY: all clean run debug release test test-verbose

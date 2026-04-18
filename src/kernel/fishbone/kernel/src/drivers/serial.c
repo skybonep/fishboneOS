@@ -70,8 +70,10 @@ int serial_is_faulty(unsigned short com_base)
     outb(SERIAL_DATA_PORT(com_base), 0xAE);
     if (inb(SERIAL_DATA_PORT(com_base)) != 0xAE)
     {
+        outb(SERIAL_MODEM_CONTROL_REGISTER(com_base), 0x0F); // Back to normal mode
         return 1;
     }
+    outb(SERIAL_MODEM_CONTROL_REGISTER(com_base), 0x0F); // Back to normal mode
     return 0;
 }
 
