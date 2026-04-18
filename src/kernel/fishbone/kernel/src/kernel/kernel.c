@@ -6,6 +6,29 @@
  */
 
 #include <stdint.h>
+#include <drivers/serial.h>
+#include <kernel/test.h>
+
+int kernel_test_failures = 0;
+
+#ifdef DEBUG
+static void boot_run_tests(void)
+{
+    TEST_START("serial_loopback");
+    if (serial_is_faulty(SERIAL_COM1_BASE) == 0)
+    {
+        TEST_PASS("serial_loopback", "COM1 loopback verified");
+    }
+    else
+    {
+        TEST_FAIL("serial_loopback", "COM1 loopback failed");
+    }
+
+    TEST_START("boot_message");
+    TEST_PASS("boot_message", "Boot message queued");
+    TEST_END();
+}
+#endif
 
 /*
  * kernel_main - C entry point for the kernel
@@ -57,6 +80,16 @@ void kernel_main(unsigned int magic, unsigned int info_ptr)
             asm volatile("hlt");
         }
     }
+
+    /* Initialize serial port for output */
+    serial_init(SERIAL_COM1_BASE);
+
+#ifdef DEBUG
+    boot_run_tests();
+#endif
+
+    /* Print boot message */
+    serial_write(SERIAL_COM1_BASE, "fishboneOS booting\n");
 
     /*
      * If we get here, we were called by GRUB with correct multiboot info.

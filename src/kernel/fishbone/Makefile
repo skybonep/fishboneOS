@@ -22,7 +22,10 @@ AS := $(CROSS_BIN)/i686-elf-as           # Assembler
 LD := $(CROSS_BIN)/i686-elf-ld           # Linker
 
 # Include directories
-# INCLUDE_DIRS := -I./include
+INCLUDE_DIRS := -Ikernel/include -Ilibc/include
+
+# Debug build flag
+DEBUG ?= 0
 
 # Compiler flags
 # -std=gnu99: Use C99 standard with GNU extensions
@@ -30,13 +33,21 @@ LD := $(CROSS_BIN)/i686-elf-ld           # Linker
 # -fno-builtin: Don't use compiler built-in functions
 # -Wall -Wextra: Enable all common warnings
 # -Wno-unused-parameter: Suppress warnings for unused parameters (common in stubs)
-CFLAGS := -std=gnu99 -ffreestanding -fno-builtin -Wall -Wextra -Wno-unused-parameter
+CFLAGS := -std=gnu99 -ffreestanding -fno-builtin -Wall -Wextra -Wno-unused-parameter $(INCLUDE_DIRS) $(if $(filter 1,$(DEBUG)),-DDEBUG,)
 
 # Assembler flags (currently empty; could add -g for debug info)
 ASFLAGS := 
 
 # Build directories
 BUILD_DIR := $(CURDIR)/build
+
+# auto-discover kernel C sources and assembly sources
+SOURCES := $(shell find kernel libc -type f \( -name '*.c' -o -name '*.s' \) 2>/dev/null)
+
+OBJS := $(patsubst %.c,%.o,$(SOURCES))
+OBJS := $(patsubst %.s,%.o,$(OBJS))
+OBJS := $(patsubst %,$(BUILD_DIR)/obj/%,$(OBJS))
+
 OBJ_DIR := $(BUILD_DIR)/obj
 KERNEL_DIR := $(BUILD_DIR)/kernel
 ISO_STAGING := $(BUILD_DIR)/iso_staging
@@ -44,17 +55,11 @@ DIST_DIR := $(BUILD_DIR)/dist
 KERNEL_BIN := $(KERNEL_DIR)/fishbone.elf
 ISO_IMAGE := $(DIST_DIR)/fishbone.iso
 
-# Source files - list all .s (assembly) and .c (C) files
-SOURCES_S := src/arch/i386/loader.s
-SOURCES_C := src/kernel/kernel.c
-OBJECTS := $(patsubst %.s,$(BUILD_DIR)/obj/%.o,$(SOURCES_S)) \
-           $(patsubst %.c,$(BUILD_DIR)/obj/%.o,$(SOURCES_C))
-
 # Default target - build everything
 all: $(ISO_IMAGE)
 
 # Link all .o files into the kernel ELF executable
-$(KERNEL_BIN): $(OBJECTS) | $(KERNEL_DIR)
+$(KERNEL_BIN): $(OBJS) | $(KERNEL_DIR)
 	$(LD) -T linker.ld -o $@ $^
 
 # Create a GRUB-bootable ISO image
@@ -98,5 +103,20 @@ clean:
 run: $(ISO_IMAGE)
 	qemu-system-i386 -cdrom $(ISO_IMAGE) -serial stdio
 
+debug: DEBUG=1
+debug: all
+
+release: DEBUG=0
+release: all
+
+test:
+	$(MAKE) DEBUG=1 clean $(ISO_IMAGE)
+	@scripts/run_kernel_tests.sh $(ISO_IMAGE)
+
+test-verbose: DEBUG=1
+test-verbose: $(ISO_IMAGE)
+	@scripts/run_kernel_tests.sh $(ISO_IMAGE)
+	@cat build/test.log
+
 # Declare non-file targets
-.PHONY: all clean run
+.PHONY: all clean run debug release test test-verbose
