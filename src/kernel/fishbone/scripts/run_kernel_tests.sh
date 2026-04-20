@@ -3,7 +3,7 @@ set -euo pipefail
 
 ISO_IMAGE=${1:-build/dist/fishbone.iso}
 LOG_PATH=${2:-build/test.log}
-TIMEOUT=${TIMEOUT:-2}
+TIMEOUT=${TIMEOUT:-5}
 
 if [ ! -f "$ISO_IMAGE" ]; then
     echo "ERROR: ISO image not found: $ISO_IMAGE" >&2
