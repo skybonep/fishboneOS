@@ -8,8 +8,11 @@
 #include <stdint.h>
 #include <drivers/serial.h>
 #include <kernel/test.h>
+#include <kernel/gdt.h>
+#include <kernel/idt.h>
 
 int kernel_test_failures = 0;
+int divide_by_zero_triggered = 0;
 
 #ifdef DEBUG
 static void boot_run_tests(void)
@@ -26,6 +29,18 @@ static void boot_run_tests(void)
 
     TEST_START("boot_message");
     TEST_PASS("boot_message", "Boot message queued");
+
+    TEST_START("divide_by_zero");
+    divide_by_zero_triggered = 0;
+    asm volatile("mov $0, %%eax; div %%eax" : : : "eax");
+    if (divide_by_zero_triggered)
+    {
+        TEST_PASS("divide_by_zero", "Exception handled successfully");
+    }
+    else
+    {
+        TEST_FAIL("divide_by_zero", "Exception not triggered");
+    }
     TEST_END();
 }
 #endif
@@ -84,12 +99,20 @@ void kernel_main(unsigned int magic, unsigned int info_ptr)
     /* Initialize serial port for output */
     serial_init(SERIAL_COM1_BASE);
 
-#ifdef DEBUG
-    boot_run_tests();
-#endif
+    /* Initialize GDT */
+    gdt_init();
+    serial_write(SERIAL_COM1_BASE, "[INFO] GDT initialized\n");
+
+    /* Initialize IDT */
+    idt_init();
+    serial_write(SERIAL_COM1_BASE, "[INFO] IDT initialized\n");
 
     /* Print boot message */
     serial_write(SERIAL_COM1_BASE, "fishboneOS booting\n");
+
+#ifdef DEBUG
+    boot_run_tests();
+#endif
 
     /*
      * If we get here, we were called by GRUB with correct multiboot info.

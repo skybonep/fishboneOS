@@ -24,14 +24,22 @@
                 "${workspaceFolder}/src/kernel/fishbone/kernel/include"
             ],
             "defines": [
-                "__is_libk"
+                "__is_libk",
+                "__INTELLISENSE__"
             ],
             "compilerPath": "/home/peter/opt/cross/bin/i686-elf-gcc",
             "cStandard": "gnu99",
             "intelliSenseMode": "linux-gcc-x86",
             "compilerArgs": [
                 "-ffreestanding"
-            ]
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/src/kernel/fishbone/kernel/src/arch/i386",
+                    "${workspaceFolder}/src/kernel/fishbone/kernel/include"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            }
         }
     ],
     "version": 4
