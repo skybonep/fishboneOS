@@ -3,7 +3,7 @@ set -euo pipefail
 
 ISO_IMAGE=${1:-build/dist/fishbone.iso}
 LOG_PATH=${2:-build/test.log}
-TIMEOUT=${TIMEOUT:-2}
+TIMEOUT=${TIMEOUT:-3}
 
 if [ ! -f "$ISO_IMAGE" ]; then
     echo "ERROR: ISO image not found: $ISO_IMAGE" >&2
@@ -31,6 +31,7 @@ echo "=== End captured markers ==="
 
 PASS_COUNT=$(grep -c '^\[TEST_PASS\]' "$LOG_PATH" || true)
 FAIL_COUNT=$(grep -c '^\[TEST_FAIL\]' "$LOG_PATH" || true)
+START_COUNT=$(grep -c '^\[TEST_START\]' "$LOG_PATH" || true)
 BOOT_COUNT=$(grep -c 'fishboneOS booting' "$LOG_PATH" || true)
 
 if [ "$BOOT_COUNT" -eq 0 ]; then
@@ -40,6 +41,11 @@ fi
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
     echo "ERROR: $FAIL_COUNT test failure(s) found." >&2
+    exit 1
+fi
+
+if [ "$START_COUNT" -ne $((PASS_COUNT + FAIL_COUNT)) ]; then
+    echo "ERROR: Test count mismatch: $START_COUNT start(s), $PASS_COUNT pass(es), $FAIL_COUNT failure(s)." >&2
     exit 1
 fi
 
